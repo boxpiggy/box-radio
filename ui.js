@@ -243,20 +243,24 @@
 
   function renderPlayer() {
     const now = $('now');
+    const toggle = $('toggle');
     if (state.playing) {
       now.textContent = state.currentName || '播放中';
       now.classList.add('live');
-      $('toggle').textContent = '暂停';
+      toggle.classList.add('is-playing');
+      toggle.setAttribute('aria-label', '暂停');
     } else if (state.currentId) {
       now.textContent = state.currentName || '已暂停';
       now.classList.remove('live');
-      $('toggle').textContent = '继续收听';
+      toggle.classList.remove('is-playing');
+      toggle.setAttribute('aria-label', '播放');
     } else {
       now.textContent = '未在播放';
       now.classList.remove('live');
-      $('toggle').textContent = '收听';
+      toggle.classList.remove('is-playing');
+      toggle.setAttribute('aria-label', '播放');
     }
-    $('toggle').disabled = !state.currentId && !state.lastId;
+    toggle.disabled = !state.currentId && !state.lastId;
     $('halt').disabled = !state.currentId && !state.playing;
   }
 

@@ -216,6 +216,24 @@
         padding: 4px 8px;
         cursor: pointer;
       }
+      footer .icon-btn {
+        width: 32px;
+        height: 32px;
+        padding: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex: 0 0 32px;
+      }
+      footer .icon-btn svg {
+        width: 14px;
+        height: 14px;
+        fill: currentColor;
+        display: block;
+      }
+      #toggle .i-pause { display: none; }
+      #toggle.is-playing .i-play { display: none; }
+      #toggle.is-playing .i-pause { display: block; }
       input[type='range'] { width: 72px; }
       .toast {
         position: absolute;
@@ -256,8 +274,19 @@
     <div id="toast" class="toast" hidden></div>
     <footer>
       <div id="now" class="now">未在播放</div>
-      <button type="button" id="toggle" disabled>收听</button>
-      <button type="button" id="halt" disabled>停止</button>
+      <button type="button" id="toggle" class="icon-btn" aria-label="播放" disabled>
+        <svg class="i-play" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M4 2.5v11l10-5.5L4 2.5z" />
+        </svg>
+        <svg class="i-pause" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M3.5 2.5h3v11h-3zm6 0h3v11h-3z" />
+        </svg>
+      </button>
+      <button type="button" id="halt" class="icon-btn" aria-label="停止" disabled>
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M3.5 3.5h9v9h-9z" />
+        </svg>
+      </button>
       <input id="vol" type="range" min="0" max="100" value="80" />
     </footer>
     <audio id="audio"></audio>
