@@ -24,6 +24,7 @@
     busy: false,
     regionId: 'gd',
     regions: [],
+    chipsOpen: false,
   };
 
   let playSeq = 0;
@@ -138,23 +139,37 @@
   }
 
   function renderChips() {
+    const bar = $('regionBar');
     const el = $('chips');
     if (state.tab !== 'cat' || state.q) {
+      bar.hidden = true;
+      el.hidden = true;
+      el.innerHTML = '';
+      return;
+    }
+    const current = state.regions.find((r) => r.id === state.regionId) || state.regions[0];
+    bar.hidden = false;
+    $('regionCurrent').textContent = current ? current.label : '广东';
+    $('regionToggle').classList.toggle('open', state.chipsOpen);
+    $('regionToggle').textContent = state.chipsOpen ? '▴' : '▾';
+    if (!state.chipsOpen) {
       el.hidden = true;
       el.innerHTML = '';
       return;
     }
     el.hidden = false;
     el.innerHTML = '';
-    const selected = state.regions.filter((r) => r.id === state.regionId);
-    const rest = state.regions.filter((r) => r.id !== state.regionId);
-    for (const r of [...selected, ...rest]) {
+    for (const r of state.regions) {
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.textContent = r.label;
       btn.className = r.id === state.regionId ? 'on' : '';
       btn.addEventListener('click', () => {
-        if (state.regionId === r.id) return;
+        state.chipsOpen = false;
+        if (state.regionId === r.id) {
+          render();
+          return;
+        }
         state.regionId = r.id;
         storage.set('regionId', r.id);
         load();
@@ -200,6 +215,7 @@
       const bits = [
         s.country,
         s.votes ? `热度 ${s.votes}` : '',
+        Array.isArray(s.aliases) && s.aliases.length ? s.aliases.join(' / ') : '',
         s.bitrate ? `${s.bitrate}kbps` : '',
         s.playable ? s.codec : '暂不支持',
       ]
@@ -514,6 +530,7 @@
   };
   $('tab-cat').onclick = () => {
     state.tab = 'cat';
+    state.chipsOpen = false;
     if (state.q) {
       $('q').value = '';
       state.q = '';
@@ -522,8 +539,17 @@
   };
   $('tab-fav').onclick = () => {
     state.tab = 'fav';
+    state.chipsOpen = false;
     render();
   };
+
+  const toggleChips = () => {
+    if (state.tab !== 'cat') return;
+    state.chipsOpen = !state.chipsOpen;
+    render();
+  };
+  $('regionToggle').onclick = toggleChips;
+  $('regionCurrent').onclick = toggleChips;
 
   let t = 0;
   $('q').addEventListener('input', () => {

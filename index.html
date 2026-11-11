@@ -94,6 +94,33 @@
         color: var(--bg);
         border-color: var(--fg);
       }
+      .region-bar {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 8px;
+      }
+      .region-bar button.on {
+        border: 1px solid var(--fg);
+        border-radius: 999px;
+        padding: 2px 10px;
+        background: var(--fg);
+        color: var(--bg);
+        font: inherit;
+        cursor: pointer;
+      }
+      .region-bar .caret {
+        width: 28px;
+        padding: 2px 0;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: transparent;
+        color: var(--muted-fg);
+        font: inherit;
+        cursor: pointer;
+        line-height: 1.2;
+      }
+      .region-bar .caret.open { color: var(--fg); }
       .msg {
         padding: 16px 12px;
         color: var(--muted-fg);
@@ -213,6 +240,10 @@
         <button type="button" id="tab-hot" class="on">热门</button>
         <button type="button" id="tab-cat">分类</button>
         <button type="button" id="tab-fav">收藏</button>
+      </div>
+      <div id="regionBar" class="region-bar" hidden>
+        <button type="button" id="regionCurrent" class="on">广东</button>
+        <button type="button" id="regionToggle" class="caret" aria-label="展开地区">▾</button>
       </div>
       <div id="chips" class="chips" hidden></div>
     </header>

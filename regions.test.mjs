@@ -6,6 +6,7 @@ const gd = findRegion('gd');
 const national = findRegion('national');
 const jl = findRegion('jl');
 const hl = findRegion('hl');
+const hk = findRegion('hk');
 
 test('default region is Guangdong', () => {
   assert.equal(DEFAULT_REGION, 'gd');
@@ -33,6 +34,21 @@ test('Zhongshan stations mislabeled as HK still match Guangdong', () => {
     10,
   );
   assert.deepEqual(list.map((s) => s.id), ['hk1', 'hk2']);
+});
+
+test('HK-labeled Guangdong city stations belong to Guangdong not Hong Kong', () => {
+  const taishan = { name: '台山電台', country: 'HK', tags: [] };
+  const shenzhen = { name: '深圳新聞廣播', country: 'HK', tags: [] };
+  const zhuhai = { name: '珠海綜合廣播', country: 'HK', tags: [] };
+  const rthk = { name: 'RTHK Radio 1', country: 'HK', tags: [] };
+  assert.equal(matchRegion(taishan, gd), true);
+  assert.equal(matchRegion(shenzhen, gd), true);
+  assert.equal(matchRegion(zhuhai, gd), true);
+  assert.equal(matchRegion(taishan, hk), false);
+  assert.equal(matchRegion(shenzhen, hk), false);
+  assert.equal(matchRegion(zhuhai, hk), false);
+  assert.equal(matchRegion(rthk, hk), true);
+  assert.equal(matchRegion(rthk, gd), false);
 });
 
 test('national 音乐之声 does not steal 广东音乐之声', () => {

@@ -151,3 +151,37 @@ test('byRegion Guangdong merges HK-labeled Zhongshan stations', async () => {
     true,
   );
 });
+
+test('search 快乐888 also queries catalog name 環保旅遊', async () => {
+  const names = [];
+  const api = createRadioBrowser({
+    resolve4: async () => ['1.2.3.4'],
+    reverse: async () => ['n1.api.radio-browser.info'],
+    fetchApi: async (url) => {
+      const decoded = decodeURIComponent(String(url));
+      names.push(decoded);
+      const hit = decoded.includes('環保') || decoded.includes('环保');
+      return {
+        status: 200,
+        ok: true,
+        json: async () =>
+          hit
+            ? [
+                {
+                  stationuuid: 'aa91470c-89dc-48ba-b155-f6455fc2fa74',
+                  name: '中山環保旅遊之聲',
+                  countrycode: 'HK',
+                  codec: 'MP3',
+                  hls: 0,
+                  lastcheckok: 1,
+                  votes: 70,
+                },
+              ]
+            : [],
+      };
+    },
+  });
+  const list = await api.search('快乐888');
+  assert.equal(list.length, 1);
+  assert.equal(list[0].aliases.includes('快乐888'), true);
+});

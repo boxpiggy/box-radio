@@ -44,7 +44,7 @@ export const REGIONS = [
     names: [
       '广东', '广州', '深圳', '佛山', '东莞', '珠海', '中山', '汕头', '惠州', '江门',
       '湛江', '韶关', '揭阳', '梅州', '清远', '潮州', '汕尾', '河源', '阳江', '茂名',
-      '肇庆', '云浮', '顺德',
+      '肇庆', '云浮', '顺德', '台山', '开平', '鹤山', '恩平', '南海', '番禺',
     ],
   },
   { id: 'gx', label: '广西', states: ['Guangxi', 'Kwangsi', '广西'], tags: ['guangxi'], names: ['广西', '南宁', '桂林', '柳州'] },
@@ -94,7 +94,16 @@ function hasToken(text, token) {
 export function matchRegion(station, region) {
   if (!station || !region) return false;
   const h = haystack(station);
-  if (region.countrycodes?.length && region.countrycodes.includes(h.country)) return true;
+  const tokenHit = matchTokens(station, region);
+  if (region.countrycodes?.length && region.countrycodes.includes(h.country)) {
+    if (claimedByMainland(station) && !tokenHit) return false;
+    return true;
+  }
+  return tokenHit;
+}
+
+function matchTokens(station, region) {
+  const h = haystack(station);
   for (const s of region.states || []) {
     if (h.state && (h.state === s.toLowerCase() || h.state.includes(s.toLowerCase()))) return true;
   }
@@ -111,6 +120,15 @@ export function matchRegion(station, region) {
   return false;
 }
 
+function claimedByMainland(station) {
+  return REGIONS.some(
+    (r) =>
+      r.id !== 'national' &&
+      r.id !== 'network' &&
+      !r.countrycodes &&
+      matchTokens(station, r),
+  );
+}
 /**
  * @param {Array<{ id: string, votes?: number }>} stations
  * @param {Region} region

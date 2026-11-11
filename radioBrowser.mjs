@@ -1,6 +1,7 @@
 import dns from 'node:dns/promises';
 import { mapStations } from './station.mjs';
 import { filterRegion, findRegion } from './regions.mjs';
+import { expandSearchTerms } from './aliases.mjs';
 
 export const USER_AGENT = 'BoxRadio/0.1.0';
 const DISCOVERY_HOST = 'all.api.radio-browser.info';
@@ -119,11 +120,22 @@ export function createRadioBrowser(opts = {}) {
       return all.slice(0, HOT_LIMIT);
     },
     async search(q) {
-      const name = encodeURIComponent(q);
-      const raw = await json(
-        `/json/stations/search?name=${name}&hidebroken=true&order=votes&reverse=true&limit=50`,
-      );
-      return mapStations(raw);
+      const terms = expandSearchTerms(q);
+      const seen = new Set();
+      /** @type {any[]} */
+      const out = [];
+      for (const term of terms) {
+        const raw = await json(
+          `/json/stations/search?name=${encodeURIComponent(term)}&hidebroken=true&order=votes&reverse=true&limit=50`,
+        );
+        for (const s of mapStations(raw)) {
+          if (seen.has(s.id)) continue;
+          seen.add(s.id);
+          out.push(s);
+        }
+      }
+      out.sort((a, b) => (b.votes || 0) - (a.votes || 0));
+      return out.slice(0, 50);
     },
     async byRegion(id) {
       const region = findRegion(id);

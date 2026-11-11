@@ -1,4 +1,5 @@
 /** @typedef {'MP3' | 'AAC' | 'OTHER'} Codec */
+import { decorateStation } from './aliases.mjs';
 
 /**
  * @param {unknown} raw
@@ -81,7 +82,7 @@ export function mapStations(raw) {
   const out = [];
   for (const row of raw) {
     const station = normalizeStation(row);
-    if (station) out.push(station);
+    if (station) out.push(decorateStation(station));
   }
   return out;
 }
