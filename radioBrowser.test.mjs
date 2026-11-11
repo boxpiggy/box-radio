@@ -185,3 +185,29 @@ test('search 快乐888 also queries catalog name 環保旅遊', async () => {
   assert.equal(list.length, 1);
   assert.equal(list[0].aliases.includes('快乐888'), true);
 });
+
+test('json falls back to http when https fetch fails', async () => {
+  const api = createRadioBrowser({
+    resolve4: async () => ['1.2.3.4'],
+    reverse: async () => ['n1.api.radio-browser.info'],
+    fetchApi: async (url) => {
+      if (String(url).startsWith('https://')) throw new Error('tls blocked');
+      return {
+        status: 200,
+        ok: true,
+        json: async () => [
+          {
+            stationuuid: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+            name: '中国之声',
+            countrycode: 'CN',
+            codec: 'MP3',
+            hls: 0,
+            lastcheckok: 1,
+          },
+        ],
+      };
+    },
+  });
+  const list = await api.discover();
+  assert.equal(list.length, 1);
+});

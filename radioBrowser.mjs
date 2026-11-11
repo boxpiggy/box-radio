@@ -6,7 +6,13 @@ import { expandSearchTerms } from './aliases.mjs';
 export const USER_AGENT = 'BoxRadio/0.1.0';
 const DISCOVERY_HOST = 'all.api.radio-browser.info';
 const FALLBACK_HOST = 'de1.api.radio-browser.info';
+const STATIC_HOSTS = [
+  'de1.api.radio-browser.info',
+  'de2.api.radio-browser.info',
+  'fi1.api.radio-browser.info',
+];
 const NODE_TIMEOUT_MS = 12_000;
+const HTTPS_TIMEOUT_MS = 4_000;
 const CATALOG_TIMEOUT_MS = 20_000;
 const CN_LIMIT = 400;
 const HOT_LIMIT = 100;
@@ -51,7 +57,7 @@ async function discoverHosts(resolve4 = dns.resolve4.bind(dns), reverse = dns.re
   }
   if (names.length === 0) {
     console.warn('[box.radio] dns empty, fallback', FALLBACK_HOST);
-    return [FALLBACK_HOST];
+    return [...STATIC_HOSTS];
   }
   return shuffle(names);
   };
@@ -98,32 +104,41 @@ export function createRadioBrowser(opts = {}) {
    * @param {number} [timeoutMs]
    */
   const json = async (path, timeoutMs = NODE_TIMEOUT_MS) => {
-    const list = await hosts();
+    const seen = new Set();
+    const list = [];
+    for (const host of [...(await hosts()), ...STATIC_HOSTS]) {
+      if (!host || seen.has(host)) continue;
+      seen.add(host);
+      list.push(host);
+    }
     let lastErr = null;
     for (const host of list) {
-      const ac = new AbortController();
-      const timer = setTimeout(() => ac.abort(), timeoutMs);
-      try {
-        const res = await fetchApi(`https://${host}${path}`, {
-          headers: {
-            'User-Agent': USER_AGENT,
-            Accept: 'application/json',
-          },
-          signal: ac.signal,
-        });
-        if (res.status >= 500) {
-          lastErr = new Error(`http ${res.status}`);
+      for (const proto of ['https', 'http']) {
+        const ac = new AbortController();
+        const wait = proto === 'https' ? Math.min(HTTPS_TIMEOUT_MS, timeoutMs) : timeoutMs;
+        const timer = setTimeout(() => ac.abort(), wait);
+        try {
+          const res = await fetchApi(`${proto}://${host}${path}`, {
+            headers: {
+              'User-Agent': USER_AGENT,
+              Accept: 'application/json',
+            },
+            signal: ac.signal,
+          });
+          if (res.status >= 500) {
+            lastErr = new Error(`${proto} ${res.status}`);
+            continue;
+          }
+          if (res.status === 404) return null;
+          if (!res.ok) throw new DirectoryError();
+          return await res.json();
+        } catch (err) {
+          lastErr = err;
+          if (err instanceof DirectoryError) throw err;
           continue;
+        } finally {
+          clearTimeout(timer);
         }
-        if (res.status === 404) return null;
-        if (!res.ok) throw new DirectoryError();
-        return await res.json();
-      } catch (err) {
-        lastErr = err;
-        if (err instanceof DirectoryError) throw err;
-        continue;
-      } finally {
-        clearTimeout(timer);
       }
     }
     console.warn('[box.radio] all nodes failed', lastErr?.message || lastErr);
