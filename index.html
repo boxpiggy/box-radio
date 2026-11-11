@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>Box Radio</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: var(--background, #fafafa);
+        --fg: var(--foreground, #18181b);
+        --muted-bg: var(--muted, #f4f4f5);
+        --muted-fg: var(--muted-foreground, #71717a);
+        --line: var(--border, #e4e4e7);
+        --accent: var(--primary, #18181b);
+        --accent-fg: var(--primary-foreground, #fafafa);
+      }
+      :root[data-theme='dark'] {
+        --bg: var(--background, #09090b);
+        --fg: var(--foreground, #fafafa);
+        --muted-bg: var(--muted, #27272a);
+        --muted-fg: var(--muted-foreground, #a1a1aa);
+        --line: var(--border, #27272a);
+        --accent: var(--primary, #fafafa);
+        --accent-fg: var(--primary-foreground, #18181b);
+      }
+      * { box-sizing: border-box; }
+      html, body { height: 100%; }
+      body {
+        margin: 0;
+        display: flex;
+        flex-direction: column;
+        font: 13px/1.45 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        color: var(--fg);
+        background: transparent;
+      }
+      header {
+        padding: 10px 12px 8px;
+        border-bottom: 1px solid var(--line);
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: 14px;
+        font-weight: 600;
+      }
+      input[type='search'] {
+        width: 100%;
+        padding: 6px 8px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: transparent;
+        color: inherit;
+        font: inherit;
+        outline: none;
+      }
+      input[type='search']:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent); }
+      .tabs {
+        display: flex;
+        gap: 4px;
+        margin-top: 8px;
+      }
+      .tabs button {
+        border: 1px solid transparent;
+        background: transparent;
+        color: var(--muted-fg);
+        border-radius: 6px;
+        padding: 3px 10px;
+        font: inherit;
+        cursor: pointer;
+      }
+      .tabs button.on {
+        color: var(--fg);
+        border-color: var(--line);
+        background: var(--muted-bg);
+      }
+      .msg {
+        padding: 16px 12px;
+        color: var(--muted-fg);
+        text-align: center;
+      }
+      .msg button {
+        margin-top: 8px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: transparent;
+        color: inherit;
+        font: inherit;
+        padding: 4px 10px;
+        cursor: pointer;
+      }
+      .list {
+        flex: 1;
+        overflow: auto;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+        padding: 8px 12px;
+        border: 0;
+        border-bottom: 1px solid var(--line);
+        background: transparent;
+        color: inherit;
+        font: inherit;
+        text-align: left;
+        cursor: pointer;
+      }
+      .row.current { background: var(--muted-bg); }
+      .row.dead { cursor: default; opacity: 0.72; }
+      .av {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        background: var(--muted-bg);
+        color: var(--muted-fg);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 12px;
+        font-weight: 600;
+        overflow: hidden;
+        flex: 0 0 32px;
+      }
+      .av img { width: 100%; height: 100%; object-fit: cover; }
+      .meta { flex: 1; min-width: 0; }
+      .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .sub { color: var(--muted-fg); font-size: 11px; }
+      .star {
+        border: 0;
+        background: transparent;
+        color: var(--muted-fg);
+        cursor: pointer;
+        font-size: 16px;
+        padding: 4px;
+        line-height: 1;
+      }
+      .star.on { color: #ca8a04; }
+      footer {
+        border-top: 1px solid var(--line);
+        padding: 8px 12px 10px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      footer .now {
+        flex: 1;
+        min-width: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        color: var(--muted-fg);
+      }
+      footer .now.live { color: var(--fg); }
+      footer button {
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: transparent;
+        color: inherit;
+        font: inherit;
+        padding: 4px 8px;
+        cursor: pointer;
+      }
+      input[type='range'] { width: 72px; }
+      .toast {
+        position: absolute;
+        left: 12px;
+        right: 12px;
+        bottom: 56px;
+        padding: 6px 10px;
+        border-radius: 6px;
+        background: var(--muted-bg);
+        color: var(--fg);
+        border: 1px solid var(--line);
+        font-size: 12px;
+        text-align: center;
+        pointer-events: none;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        * { transition: none !important; }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Box Radio</h1>
+      <input id="q" type="search" placeholder="搜索电台" autocomplete="off" />
+      <div class="tabs">
+        <button type="button" id="tab-hot" class="on">热门</button>
+        <button type="button" id="tab-fav">收藏</button>
+      </div>
+    </header>
+    <ul id="list" class="list"></ul>
+    <div id="empty" class="msg" hidden></div>
+    <div id="toast" class="toast" hidden></div>
+    <footer>
+      <div id="now" class="now">未在播放</div>
+      <button type="button" id="toggle" disabled>收听</button>
+      <button type="button" id="halt" disabled>停止</button>
+      <input id="vol" type="range" min="0" max="100" value="80" />
+    </footer>
+    <audio id="audio"></audio>
+    <script src="ui.js"></script>
+  </body>
+</html>
