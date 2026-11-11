@@ -207,20 +207,19 @@
       } else {
         av.textContent = glyph(s.name);
       }
-      if (isCurrent) {
+      if (s.playable) {
         const badge = document.createElement('span');
         badge.className = 'av-badge';
         badge.setAttribute('aria-hidden', 'true');
-        if (isPlaying) {
-          const eq = document.createElement('span');
-          eq.className = 'av-eq';
-          eq.append(document.createElement('span'), document.createElement('span'), document.createElement('span'));
-          badge.append(eq);
-        } else {
-          const play = document.createElement('span');
-          play.className = 'av-play';
-          badge.append(play);
-        }
+        const play = document.createElement('span');
+        play.className = 'av-play';
+        const pause = document.createElement('span');
+        pause.className = 'av-pause';
+        pause.append(document.createElement('span'), document.createElement('span'));
+        const eq = document.createElement('span');
+        eq.className = 'av-eq';
+        eq.append(document.createElement('span'), document.createElement('span'), document.createElement('span'));
+        badge.append(play, pause, eq);
         av.append(badge);
       }
 
@@ -253,7 +252,16 @@
       });
 
       row.append(av, meta, star);
-      row.addEventListener('click', () => onRow(s));
+      if (s.playable) {
+        av.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          onRow(s);
+        });
+        name.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          onRow(s);
+        });
+      }
       ul.append(row);
     }
     renderPlayer();
@@ -263,24 +271,59 @@
   function renderPlayer() {
     const now = $('now');
     const toggle = $('toggle');
+    const id = state.currentId || state.lastId;
+    const name =
+      state.currentName || (id && state.book[id] && state.book[id].name) || '';
+    const footAv = $('footAv');
+    footAv.replaceChildren();
+    if (id && name) {
+      footAv.hidden = false;
+      if (state.covers[id]) {
+        const img = document.createElement('img');
+        img.alt = '';
+        img.src = state.covers[id];
+        footAv.append(img);
+      } else {
+        footAv.textContent = glyph(name);
+      }
+    } else {
+      footAv.hidden = true;
+    }
+    const key = `${id || ''}|${name}|${state.playing ? '1' : '0'}`;
+    if (now.dataset.track !== key) {
+      now.dataset.track = key;
+      now.classList.remove('marquee', 'live');
+      now.style.animationDuration = '';
+      now.replaceChildren();
+      if (!name) {
+        now.textContent = '未在播放';
+      } else {
+        if (state.playing) now.classList.add('live');
+        const a = document.createElement('span');
+        a.textContent = name;
+        now.append(a);
+        requestAnimationFrame(() => {
+          const wrap = now.parentElement;
+          const reduce =
+            typeof matchMedia === 'function' &&
+            matchMedia('(prefers-reduced-motion: reduce)').matches;
+          if (!wrap || reduce || a.offsetWidth <= wrap.clientWidth) return;
+          now.append(a.cloneNode(true));
+          now.classList.add('marquee');
+          now.style.animationDuration = `${Math.max(8, a.offsetWidth / 28)}s`;
+        });
+      }
+    } else if (name) {
+      now.classList.toggle('live', state.playing);
+    }
     if (state.playing) {
-      now.textContent = state.currentName || '播放中';
-      now.classList.add('live');
       toggle.classList.add('is-playing');
       toggle.setAttribute('aria-label', '暂停');
-    } else if (state.currentId) {
-      now.textContent = state.currentName || '已暂停';
-      now.classList.remove('live');
-      toggle.classList.remove('is-playing');
-      toggle.setAttribute('aria-label', '播放');
     } else {
-      now.textContent = '未在播放';
-      now.classList.remove('live');
       toggle.classList.remove('is-playing');
       toggle.setAttribute('aria-label', '播放');
     }
     toggle.disabled = !state.currentId && !state.lastId;
-    $('halt').disabled = !state.currentId && !state.playing;
   }
 
   function toggleFav(s) {
@@ -595,12 +638,6 @@
     const id = state.currentId || state.lastId;
     const s = (id && state.book[id]) || displayed().find((x) => x.id === id);
     if (s) await startPlay(s);
-  };
-  $('halt').onclick = async () => {
-    await stopAll();
-    state.currentId = '';
-    state.currentName = '';
-    render();
   };
   $('vol').addEventListener('input', () => {
     const v = Number($('vol').value) / 100;

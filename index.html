@@ -84,6 +84,7 @@
       .region-bar[hidden] {
         display: none !important;
       }
+      .foot-av[hidden] { display: none !important; }
       .chips button {
         border: 1px solid var(--line);
         border-radius: 999px;
@@ -159,15 +160,16 @@
         color: inherit;
         font: inherit;
         text-align: left;
-        cursor: pointer;
+        cursor: default;
       }
-      .row.current { background: var(--muted-bg); }
+      .row:hover { background: var(--muted-bg); }
       .row.playing {
-        background: var(--muted-bg);
         box-shadow: inset 2px 0 0 var(--fg);
       }
       .row.playing .name { font-weight: 600; }
       .row.dead { cursor: default; opacity: 0.72; }
+      .row:not(.dead) .av,
+      .row:not(.dead) .name { cursor: pointer; }
       .av {
         width: 32px;
         height: 32px;
@@ -190,14 +192,22 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        background: color-mix(in srgb, var(--fg) 48%, transparent);
+        background: color-mix(in srgb, var(--fg) 28%, transparent);
+        opacity: 0;
+        pointer-events: none;
+      }
+      .row:not(.dead) .av:hover .av-badge,
+      .row.playing .av-badge {
+        opacity: 1;
       }
       .av-eq {
-        display: flex;
+        display: none;
         align-items: flex-end;
         gap: 2px;
         height: 12px;
       }
+      .row.playing .av-eq { display: flex; }
+      .row.playing .av:hover .av-eq { display: none; }
       .av-eq span {
         display: block;
         width: 2px;
@@ -219,7 +229,23 @@
         border-width: 5px 0 5px 8px;
         border-color: transparent transparent transparent var(--bg);
         margin-left: 2px;
+        display: none;
       }
+      .row:not(.playing):not(.dead) .av:hover .av-play { display: block; }
+      .av-pause {
+        display: none;
+        align-items: center;
+        justify-content: center;
+        gap: 3px;
+        height: 10px;
+      }
+      .av-pause span {
+        display: block;
+        width: 2px;
+        height: 10px;
+        background: var(--bg);
+      }
+      .row.playing .av:hover .av-pause { display: flex; }
       @media (prefers-reduced-motion: reduce) {
         .av-eq span { animation: none; transform: scaleY(0.65); }
       }
@@ -243,13 +269,43 @@
         align-items: center;
         gap: 8px;
       }
-      footer .now {
+      .foot-av {
+        width: 32px;
+        height: 32px;
+        border-radius: 6px;
+        background: var(--muted-bg);
+        color: var(--muted-fg);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 12px;
+        font-weight: 600;
+        overflow: hidden;
+        flex: 0 0 32px;
+      }
+      .foot-av img { width: 100%; height: 100%; object-fit: cover; }
+      .now-wrap {
         flex: 1;
         min-width: 0;
-        white-space: nowrap;
         overflow: hidden;
-        text-overflow: ellipsis;
+      }
+      footer .now {
+        flex: none;
+        min-width: 0;
+        white-space: nowrap;
+        overflow: visible;
+        text-overflow: unset;
         color: var(--muted-fg);
+      }
+      footer .now.marquee {
+        display: flex;
+        width: max-content;
+        animation: now-slide linear infinite;
+      }
+      footer .now.marquee span { padding-right: 2.5em; }
+      @keyframes now-slide {
+        from { transform: translateX(0); }
+        to { transform: translateX(-50%); }
       }
       footer .now.live { color: var(--fg); }
       footer button {
@@ -296,6 +352,7 @@
       }
       @media (prefers-reduced-motion: reduce) {
         * { transition: none !important; }
+        footer .now.marquee { animation: none; }
       }
     </style>
   </head>
@@ -318,18 +375,16 @@
     <div id="empty" class="msg" hidden></div>
     <div id="toast" class="toast" hidden></div>
     <footer>
-      <div id="now" class="now">未在播放</div>
+      <div id="footAv" class="foot-av" hidden></div>
+      <div class="now-wrap">
+        <div id="now" class="now">未在播放</div>
+      </div>
       <button type="button" id="toggle" class="icon-btn" aria-label="播放" disabled>
         <svg class="i-play" viewBox="0 0 16 16" aria-hidden="true">
           <path d="M4 2.5v11l10-5.5L4 2.5z" />
         </svg>
         <svg class="i-pause" viewBox="0 0 16 16" aria-hidden="true">
           <path d="M3.5 2.5h3v11h-3zm6 0h3v11h-3z" />
-        </svg>
-      </button>
-      <button type="button" id="halt" class="icon-btn" aria-label="停止" disabled>
-        <svg viewBox="0 0 16 16" aria-hidden="true">
-          <path d="M3.5 3.5h9v9h-9z" />
         </svg>
       </button>
       <input id="vol" type="range" min="0" max="100" value="80" />
