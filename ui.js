@@ -146,7 +146,9 @@
     }
     el.hidden = false;
     el.innerHTML = '';
-    for (const r of state.regions) {
+    const selected = state.regions.filter((r) => r.id === state.regionId);
+    const rest = state.regions.filter((r) => r.id !== state.regionId);
+    for (const r of [...selected, ...rest]) {
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.textContent = r.label;

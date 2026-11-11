@@ -19,6 +19,22 @@ test('matches Guangdong by state, tag, or city in the name', () => {
   assert.equal(matchRegion({ name: '北京新闻广播', tags: [] }, gd), false);
 });
 
+test('Zhongshan stations mislabeled as HK still match Guangdong', () => {
+  const zs = { name: '中山綜合廣播', country: 'HK', tags: [] };
+  assert.equal(matchRegion(zs, gd), true);
+  assert.equal(findRegion('gd').extraCountrycodes.includes('HK'), true);
+  const list = filterRegion(
+    [
+      { id: 'hk1', name: '中山綜合廣播', country: 'HK', votes: 81 },
+      { id: 'hk2', name: '中山環保旅遊之聲', country: 'HK', votes: 70 },
+      { id: 'hk3', name: '香港电台', country: 'HK', votes: 200 },
+    ],
+    gd,
+    10,
+  );
+  assert.deepEqual(list.map((s) => s.id), ['hk1', 'hk2']);
+});
+
 test('national 音乐之声 does not steal 广东音乐之声', () => {
   assert.equal(matchRegion({ name: '音乐之声', tags: [] }, national), true);
   assert.equal(matchRegion({ name: '广东音乐之声', tags: [] }, national), false);

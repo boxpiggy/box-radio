@@ -108,3 +108,46 @@ test('byRegion filters the CN catalog to Guangdong and sorts votes', async () =>
     'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
   ]);
 });
+
+test('byRegion Guangdong merges HK-labeled Zhongshan stations', async () => {
+  const api = createRadioBrowser({
+    resolve4: async () => ['1.2.3.4'],
+    reverse: async () => ['n1.api.radio-browser.info'],
+    fetchApi: async (url) => {
+      const hk = String(url).includes('countrycode=HK');
+      return {
+        status: 200,
+        ok: true,
+        json: async () =>
+          hk
+            ? [
+                {
+                  stationuuid: 'dddddddd-dddd-dddd-dddd-dddddddddddd',
+                  name: '中山綜合廣播',
+                  countrycode: 'HK',
+                  codec: 'MP3',
+                  hls: 0,
+                  lastcheckok: 1,
+                  votes: 81,
+                },
+              ]
+            : [
+                {
+                  stationuuid: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+                  name: '广东新闻广播',
+                  countrycode: 'CN',
+                  codec: 'MP3',
+                  hls: 0,
+                  lastcheckok: 1,
+                  votes: 3,
+                },
+              ],
+      };
+    },
+  });
+  const list = await api.byRegion('gd');
+  assert.equal(
+    list.some((s) => s.name.includes('中山')),
+    true,
+  );
+});

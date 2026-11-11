@@ -128,17 +128,15 @@ export function createRadioBrowser(opts = {}) {
     async byRegion(id) {
       const region = findRegion(id);
       /** @type {any[]} */
-      let pool = [];
-      if (region.countrycodes?.length) {
-        for (const cc of region.countrycodes) {
-          const raw = await json(
-            `/json/stations/search?countrycode=${encodeURIComponent(cc)}&hidebroken=true&order=votes&reverse=true&limit=200`,
-          );
-          pool = pool.concat(mapStations(raw));
-        }
-        pool = pool.concat(await loadCn());
-      } else {
-        pool = await loadCn();
+      let pool = await loadCn();
+      const extras = [
+        ...new Set([...(region.countrycodes || []), ...(region.extraCountrycodes || [])]),
+      ].filter((cc) => cc && cc !== 'CN');
+      for (const cc of extras) {
+        const raw = await json(
+          `/json/stations/search?countrycode=${encodeURIComponent(cc)}&hidebroken=true&order=votes&reverse=true&limit=200`,
+        );
+        pool = pool.concat(mapStations(raw));
       }
       return filterRegion(pool, region, REGION_LIMIT);
     },

@@ -1,6 +1,6 @@
 /** 蜻蜓 FM 风格：国家台 / 网络台 + 省级行政区。默认广东。 */
 
-/** @typedef {{ id: string, label: string, states?: string[], tags?: string[], names?: string[], exclusiveNames?: string[], countrycodes?: string[] }} Region */
+/** @typedef {{ id: string, label: string, states?: string[], tags?: string[], names?: string[], exclusiveNames?: string[], countrycodes?: string[], extraCountrycodes?: string[] }} Region */
 
 /** @type {Region[]} */
 export const REGIONS = [
@@ -40,6 +40,7 @@ export const REGIONS = [
     label: '广东',
     states: ['Guangdong', 'Kwangtung', '广东'],
     tags: ['guangdong', 'canton', 'guangzhou', 'shenzhen'],
+    extraCountrycodes: ['HK'],
     names: [
       '广东', '广州', '深圳', '佛山', '东莞', '珠海', '中山', '汕头', '惠州', '江门',
       '湛江', '韶关', '揭阳', '梅州', '清远', '潮州', '汕尾', '河源', '阳江', '茂名',
