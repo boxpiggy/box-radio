@@ -191,7 +191,10 @@
     ul.innerHTML = '';
     for (const s of displayed()) {
       const row = document.createElement('div');
-      row.className = 'row' + (s.id === state.currentId ? ' current' : '') + (s.playable ? '' : ' dead');
+      const isCurrent = s.id === state.currentId;
+      const isPlaying = isCurrent && state.playing;
+      row.className =
+        'row' + (isPlaying ? ' playing' : isCurrent ? ' current' : '') + (s.playable ? '' : ' dead');
       row.dataset.id = s.id;
 
       const av = document.createElement('div');
@@ -203,6 +206,22 @@
         av.append(img);
       } else {
         av.textContent = glyph(s.name);
+      }
+      if (isCurrent) {
+        const badge = document.createElement('span');
+        badge.className = 'av-badge';
+        badge.setAttribute('aria-hidden', 'true');
+        if (isPlaying) {
+          const eq = document.createElement('span');
+          eq.className = 'av-eq';
+          eq.append(document.createElement('span'), document.createElement('span'), document.createElement('span'));
+          badge.append(eq);
+        } else {
+          const play = document.createElement('span');
+          play.className = 'av-play';
+          badge.append(play);
+        }
+        av.append(badge);
       }
 
       const meta = document.createElement('div');
