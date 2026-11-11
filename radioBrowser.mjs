@@ -6,8 +6,9 @@ import { expandSearchTerms } from './aliases.mjs';
 export const USER_AGENT = 'BoxRadio/0.1.0';
 const DISCOVERY_HOST = 'all.api.radio-browser.info';
 const FALLBACK_HOST = 'de1.api.radio-browser.info';
-const NODE_TIMEOUT_MS = 8_000;
-const CN_LIMIT = 1000;
+const NODE_TIMEOUT_MS = 12_000;
+const CATALOG_TIMEOUT_MS = 20_000;
+const CN_LIMIT = 400;
 const HOT_LIMIT = 100;
 const REGION_LIMIT = 80;
 
@@ -30,6 +31,7 @@ function shuffle(list) {
 }
 
 async function discoverHosts(resolve4 = dns.resolve4.bind(dns), reverse = dns.reverse.bind(dns)) {
+  const run = async () => {
   /** @type {string[]} */
   const names = [];
   try {
@@ -52,6 +54,14 @@ async function discoverHosts(resolve4 = dns.resolve4.bind(dns), reverse = dns.re
     return [FALLBACK_HOST];
   }
   return shuffle(names);
+  };
+  return Promise.race([
+    run(),
+    new Promise((resolve) => {
+      const timer = setTimeout(() => resolve([FALLBACK_HOST]), 5_000);
+      if (typeof timer.unref === 'function') timer.unref();
+    }),
+  ]);
 }
 
 /**
@@ -73,20 +83,26 @@ export function createRadioBrowser(opts = {}) {
     if (!cnPromise) {
       cnPromise = json(
         `/json/stations/search?countrycode=CN&hidebroken=true&order=votes&reverse=true&limit=${CN_LIMIT}`,
+        CATALOG_TIMEOUT_MS,
       ).then((raw) => mapStations(raw));
+      cnPromise = cnPromise.catch((err) => {
+        cnPromise = null;
+        throw err;
+      });
     }
     return cnPromise;
   };
 
   /**
    * @param {string} path
+   * @param {number} [timeoutMs]
    */
-  const json = async (path) => {
+  const json = async (path, timeoutMs = NODE_TIMEOUT_MS) => {
     const list = await hosts();
     let lastErr = null;
     for (const host of list) {
       const ac = new AbortController();
-      const timer = setTimeout(() => ac.abort(), NODE_TIMEOUT_MS);
+      const timer = setTimeout(() => ac.abort(), timeoutMs);
       try {
         const res = await fetchApi(`https://${host}${path}`, {
           headers: {
@@ -116,8 +132,10 @@ export function createRadioBrowser(opts = {}) {
 
   return {
     async discover() {
-      const all = await loadCn();
-      return all.slice(0, HOT_LIMIT);
+      const raw = await json(
+        `/json/stations/search?countrycode=CN&hidebroken=true&order=votes&reverse=true&limit=${HOT_LIMIT}`,
+      );
+      return mapStations(raw);
     },
     async search(q) {
       const terms = expandSearchTerms(q);
