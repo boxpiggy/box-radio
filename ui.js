@@ -25,6 +25,8 @@
     regionId: 'gd',
     regions: [],
     chipsOpen: false,
+    hotList: null,
+    catLists: {},
   };
 
   let playSeq = 0;
@@ -104,13 +106,13 @@
   function renderEmpty() {
     const el = $('empty');
     const rows = displayed();
-    if (state.loading) {
+    if (state.loading && !rows.length) {
       el.hidden = false;
       el.textContent = '加载中…';
       $('list').innerHTML = '';
       return true;
     }
-    if (state.error) {
+    if (state.error && !rows.length) {
       el.hidden = false;
       el.innerHTML = '';
       el.append(state.error, document.createElement('br'));
@@ -548,9 +550,27 @@
   }
 
   async function load() {
-    state.loading = true;
-    state.error = '';
-    render();
+    const searching = Boolean(state.q);
+    let cached = null;
+    if (!searching && state.tab === 'hot') cached = state.hotList;
+    if (!searching && state.tab === 'cat') cached = state.catLists[state.regionId];
+    if (!searching && state.tab === 'fav') {
+      state.loading = false;
+      state.error = '';
+      render();
+      return;
+    }
+    const useCache = Array.isArray(cached) && cached.length > 0;
+    if (useCache) {
+      state.list = cached;
+      state.loading = false;
+      state.error = '';
+      render();
+    } else {
+      state.loading = true;
+      state.error = '';
+      render();
+    }
     try {
       let res;
       if (state.q) {
@@ -570,16 +590,22 @@
         res = await call('discover', {});
       }
       if (!res?.ok) {
-        state.list = [];
-        state.error = res?.error || '电台目录暂时连不上，请稍后重试';
+        if (!useCache) {
+          state.list = [];
+          state.error = res?.error || '电台目录暂时连不上，请稍后重试';
+        }
       } else {
         state.list = res.stations || [];
         for (const s of state.list) state.book[s.id] = s;
         saveFav();
+        if (!searching && state.tab === 'hot') state.hotList = state.list;
+        if (!searching && state.tab === 'cat') state.catLists[state.regionId] = state.list;
       }
     } catch {
-      state.list = [];
-      state.error = '电台目录暂时连不上，请稍后重试';
+      if (!useCache) {
+        state.list = [];
+        state.error = '电台目录暂时连不上，请稍后重试';
+      }
     } finally {
       state.loading = false;
       render();

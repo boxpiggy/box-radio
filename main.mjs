@@ -58,6 +58,7 @@ export function activate(enso) {
     asDirectory(async () => {
       const stations = await api.discover();
       remember(stations);
+      api.prefetch();
       return { ok: true, stations };
     }),
   );

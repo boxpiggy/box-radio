@@ -12,7 +12,7 @@ const STATIC_HOSTS = [
   'fi1.api.radio-browser.info',
 ];
 const NODE_TIMEOUT_MS = 12_000;
-const HTTPS_TIMEOUT_MS = 4_000;
+const HTTPS_TIMEOUT_MS = 2_500;
 const CATALOG_TIMEOUT_MS = 20_000;
 const CN_LIMIT = 400;
 const HOT_LIMIT = 100;
@@ -64,7 +64,7 @@ async function discoverHosts(resolve4 = dns.resolve4.bind(dns), reverse = dns.re
   return Promise.race([
     run(),
     new Promise((resolve) => {
-      const timer = setTimeout(() => resolve([FALLBACK_HOST]), 5_000);
+      const timer = setTimeout(() => resolve([...STATIC_HOSTS]), 1_500);
       if (typeof timer.unref === 'function') timer.unref();
     }),
   ]);
@@ -77,6 +77,8 @@ export function createRadioBrowser(opts = {}) {
   const fetchApi = opts.fetchApi || fetch;
   let hostsPromise = null;
   let cnPromise = null;
+  let preferredProto = null;
+  const countryCache = new Map();
 
   const hosts = () => {
     if (!hostsPromise) {
@@ -99,6 +101,21 @@ export function createRadioBrowser(opts = {}) {
     return cnPromise;
   };
 
+  const loadCountry = (cc) => {
+    if (!countryCache.has(cc)) {
+      const p = json(
+        `/json/stations/search?countrycode=${encodeURIComponent(cc)}&hidebroken=true&order=votes&reverse=true&limit=200`,
+      )
+        .then((raw) => mapStations(raw))
+        .catch((err) => {
+          countryCache.delete(cc);
+          throw err;
+        });
+      countryCache.set(cc, p);
+    }
+    return countryCache.get(cc);
+  };
+
   /**
    * @param {string} path
    * @param {number} [timeoutMs]
@@ -113,7 +130,10 @@ export function createRadioBrowser(opts = {}) {
     }
     let lastErr = null;
     for (const host of list) {
-      for (const proto of ['https', 'http']) {
+      const protos = preferredProto
+        ? [preferredProto, preferredProto === 'http' ? 'https' : 'http']
+        : ['http', 'https'];
+      for (const proto of protos) {
         const ac = new AbortController();
         const wait = proto === 'https' ? Math.min(HTTPS_TIMEOUT_MS, timeoutMs) : timeoutMs;
         const timer = setTimeout(() => ac.abort(), wait);
@@ -131,6 +151,7 @@ export function createRadioBrowser(opts = {}) {
           }
           if (res.status === 404) return null;
           if (!res.ok) throw new DirectoryError();
+          preferredProto = proto;
           return await res.json();
         } catch (err) {
           lastErr = err;
@@ -172,18 +193,19 @@ export function createRadioBrowser(opts = {}) {
     },
     async byRegion(id) {
       const region = findRegion(id);
-      /** @type {any[]} */
-      let pool = await loadCn();
       const extras = [
         ...new Set([...(region.countrycodes || []), ...(region.extraCountrycodes || [])]),
       ].filter((cc) => cc && cc !== 'CN');
-      for (const cc of extras) {
-        const raw = await json(
-          `/json/stations/search?countrycode=${encodeURIComponent(cc)}&hidebroken=true&order=votes&reverse=true&limit=200`,
-        );
-        pool = pool.concat(mapStations(raw));
-      }
+      const packs = await Promise.all([
+        loadCn(),
+        ...extras.map((cc) => loadCountry(cc).catch(() => [])),
+      ]);
+      const pool = packs.flat();
       return filterRegion(pool, region, REGION_LIMIT);
+    },
+    prefetch() {
+      loadCn().catch(() => {});
+      loadCountry('HK').catch(() => {});
     },
     async click(id) {
       const raw = await json(`/json/url/${encodeURIComponent(id)}`);
