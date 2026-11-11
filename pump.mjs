@@ -16,7 +16,7 @@ export function createLivePump({ id, url, mime, fetchApi = fetch }) {
   const queue = [];
   let eof = false;
   let error = '';
-  let headersOk = false;
+  let gotAudio = false;
 
   const run = async () => {
     try {
@@ -46,10 +46,16 @@ export function createLivePump({ id, url, mime, fetchApi = fetch }) {
         queue.push(buf);
         while (queue.length > MAX_CHUNKS) queue.shift();
       };
-      headersOk = true;
-      for await (const piece of res.body) {
+      const reader = res.body.getReader();
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
         if (ac.signal.aborted) break;
-        stripper.push(piece, (audio) => chunker.push(audio, enqueue));
+        if (!value?.length) continue;
+        stripper.push(value, (audio) => {
+          if (audio.length) gotAudio = true;
+          chunker.push(audio, enqueue);
+        });
       }
       if (!ac.signal.aborted) chunker.flush(enqueue);
     } catch (err) {
@@ -75,10 +81,10 @@ export function createLivePump({ id, url, mime, fetchApi = fetch }) {
     },
     async waitOpen() {
       const start = Date.now();
-      while (!headersOk && !eof && Date.now() - start < OPEN_WAIT_MS) {
+      while (!gotAudio && !eof && Date.now() - start < OPEN_WAIT_MS) {
         await sleep(40);
       }
-      if (!headersOk) {
+      if (!gotAudio) {
         ac.abort();
         await running.catch(() => {});
         return false;

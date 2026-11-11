@@ -21,7 +21,10 @@
     covers: {},
     coverFail: {},
     toastTimer: 0,
+    busy: false,
   };
+
+  let playSeq = 0;
 
   let media = {
     ms: null,
@@ -75,6 +78,15 @@
   function glyph(name) {
     const ch = String(name || '').trim().charAt(0);
     return ch || '?';
+  }
+
+  function skipToFrame(u8) {
+    for (let i = 0; i < u8.length - 1; i++) {
+      if (u8[i] === 0xff && (u8[i + 1] & 0xe0) === 0xe0) {
+        return i === 0 ? u8 : u8.subarray(i);
+      }
+    }
+    return u8;
   }
 
   function displayed() {
@@ -308,34 +320,48 @@
         sb.appendBuffer(buf);
         await new Promise((r) => sb.addEventListener('updateend', r, { once: true }));
       } catch {
-        toast('无法播放此电台');
-        await stopAll();
-        return;
+        try {
+          const aligned = skipToFrame(buf);
+          if (aligned === buf || !aligned.length) throw new Error('bad frame');
+          if (sb.updating) {
+            await new Promise((r) => sb.addEventListener('updateend', r, { once: true }));
+          }
+          sb.appendBuffer(aligned);
+          await new Promise((r) => sb.addEventListener('updateend', r, { once: true }));
+        } catch {
+          toast('无法播放此电台');
+          await stopAll();
+          return;
+        }
       }
     }
   }
 
   async function startPlay(station) {
+    if (state.busy) return;
+    const seq = ++playSeq;
+    state.busy = true;
+    try {
     await stopAll();
-    state.currentId = station.id;
+    if (seq !== playSeq) return;
     state.currentName = station.name;
-    state.playing = false;
-    render();
     let res;
     try {
       res = await call('open', { id: station.id });
     } catch {
-      toast('无法播放此电台');
+      if (seq === playSeq) toast('无法播放此电台');
       return;
     }
+    if (seq !== playSeq) return;
     if (res?.reason === 'unsupported') {
-      toast('此台是 HLS，当前版本还不支持');
+      if (seq === playSeq) toast('此台是 HLS，当前版本还不支持');
       return;
     }
     if (!res?.ok) {
-      toast(res?.error || '无法播放此电台');
+      if (seq === playSeq) toast(res?.error || '无法播放此电台');
       return;
     }
+    state.currentId = station.id;
     state.currentName = res.name || station.name;
     state.lastId = station.id;
     storage.set('lastId', station.id);
@@ -353,7 +379,6 @@
         () => {
           try {
             const sb = ms.addSourceBuffer(res.mime || 'audio/mpeg');
-            sb.mode = 'sequence';
             media.sb = sb;
             resolve();
           } catch (err) {
@@ -363,19 +388,26 @@
         { once: true },
       );
     }).catch(async () => {
-      toast('无法播放此电台');
-      await stopAll();
+      if (seq === playSeq) {
+        toast('无法播放此电台');
+        await stopAll();
+      }
     });
+    if (seq !== playSeq) return;
     if (!media.sb) return;
     media.looping = true;
     state.playing = true;
-    renderPlayer();
+    render();
     const playP = audio.play().catch(() => {});
     loopChunks(station.id);
     await playP;
+    } finally {
+      if (seq === playSeq) state.busy = false;
+    }
   }
 
   async function onRow(s) {
+    if (state.busy) return;
     if (!s.playable) {
       toast('此台是 HLS，当前版本还不支持');
       return;
@@ -438,6 +470,7 @@
   });
 
   $('toggle').onclick = async () => {
+    if (state.busy) return;
     if (state.playing) {
       await stopAll();
       render();

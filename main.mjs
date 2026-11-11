@@ -21,7 +21,7 @@ function isHlsUrl(url) {
 }
 
 function codecFromUrl(url) {
-  if (/\.aac(\?|#|$)/i.test(url) || /aacp?/i.test(url)) return 'AAC';
+  if (/\.aac(\?|#|$)/i.test(url)) return 'AAC';
   return 'MP3';
 }
 
