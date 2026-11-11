@@ -79,6 +79,7 @@ export function createRadioBrowser(opts = {}) {
   let cnPromise = null;
   let preferredProto = null;
   const countryCache = new Map();
+  let lastHot = [];
 
   const hosts = () => {
     if (!hostsPromise) {
@@ -171,7 +172,9 @@ export function createRadioBrowser(opts = {}) {
       const raw = await json(
         `/json/stations/search?countrycode=CN&hidebroken=true&order=votes&reverse=true&limit=${HOT_LIMIT}`,
       );
-      return mapStations(raw);
+      const stations = mapStations(raw);
+      lastHot = stations;
+      return stations;
     },
     async search(q) {
       const terms = expandSearchTerms(q);
@@ -196,11 +199,22 @@ export function createRadioBrowser(opts = {}) {
       const extras = [
         ...new Set([...(region.countrycodes || []), ...(region.extraCountrycodes || [])]),
       ].filter((cc) => cc && cc !== 'CN');
-      const packs = await Promise.all([
-        loadCn(),
-        ...extras.map((cc) => loadCountry(cc).catch(() => [])),
-      ]);
-      const pool = packs.flat();
+      const cnP = loadCn();
+      const extraPs = extras.map((cc) => loadCountry(cc).catch(() => []));
+      const extraLists = await Promise.all(extraPs);
+      let cn = lastHot;
+      try {
+        cn = await Promise.race([
+          cnP,
+          new Promise((_, reject) => {
+            const t = setTimeout(() => reject(new Error('catalog-slow')), 6_000);
+            if (typeof t.unref === 'function') t.unref();
+          }),
+        ]);
+      } catch {
+        cn = lastHot;
+      }
+      const pool = cn.concat(...extraLists);
       return filterRegion(pool, region, REGION_LIMIT);
     },
     prefetch() {

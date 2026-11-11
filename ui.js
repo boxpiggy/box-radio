@@ -30,6 +30,7 @@
   };
 
   let playSeq = 0;
+  let loadSeq = 0;
 
   let media = {
     ms: null,
@@ -550,16 +551,27 @@
   }
 
   async function load() {
-    const searching = Boolean(state.q);
-    let cached = null;
-    if (!searching && state.tab === 'hot') cached = state.hotList;
-    if (!searching && state.tab === 'cat') cached = state.catLists[state.regionId];
-    if (!searching && state.tab === 'fav') {
+    const seq = ++loadSeq;
+    const reqTab = state.tab;
+    const reqRegion = state.regionId;
+    const reqQ = state.q;
+    const searching = Boolean(reqQ);
+    const stillThis = () =>
+      seq === loadSeq &&
+      state.tab === reqTab &&
+      state.regionId === reqRegion &&
+      state.q === reqQ;
+
+    if (!searching && reqTab === 'fav') {
       state.loading = false;
       state.error = '';
       render();
       return;
     }
+
+    let cached = null;
+    if (!searching && reqTab === 'hot') cached = state.hotList;
+    if (!searching && reqTab === 'cat') cached = state.catLists[reqRegion];
     const useCache = Array.isArray(cached) && cached.length > 0;
     if (useCache) {
       state.list = cached;
@@ -567,48 +579,58 @@
       state.error = '';
       render();
     } else {
+      state.list = [];
       state.loading = true;
       state.error = '';
       render();
     }
+
     try {
       let res;
-      if (state.q) {
-        res = await call('search', { q: state.q });
-      } else if (state.tab === 'cat') {
+      if (searching) {
+        res = await call('search', { q: reqQ });
+      } else if (reqTab === 'cat') {
         if (!state.regions.length) {
           const meta = await call('regions', {});
           if (meta?.ok && Array.isArray(meta.regions)) {
             state.regions = meta.regions;
-            if (!state.regions.some((r) => r.id === state.regionId)) {
+            if (!state.regions.some((r) => r.id === reqRegion)) {
               state.regionId = meta.defaultId || 'gd';
             }
           }
         }
-        res = await call('byRegion', { id: state.regionId });
+        res = await call('byRegion', { id: reqRegion });
       } else {
         res = await call('discover', {});
       }
+      if (seq !== loadSeq) return;
       if (!res?.ok) {
-        if (!useCache) {
+        if (stillThis() && !useCache) {
           state.list = [];
           state.error = res?.error || '电台目录暂时连不上，请稍后重试';
         }
       } else {
-        state.list = res.stations || [];
-        for (const s of state.list) state.book[s.id] = s;
+        const stations = res.stations || [];
+        for (const s of stations) state.book[s.id] = s;
         saveFav();
-        if (!searching && state.tab === 'hot') state.hotList = state.list;
-        if (!searching && state.tab === 'cat') state.catLists[state.regionId] = state.list;
+        if (!searching && reqTab === 'hot') state.hotList = stations;
+        if (!searching && reqTab === 'cat') state.catLists[reqRegion] = stations;
+        if (stillThis()) {
+          state.list = stations;
+          state.error = '';
+        }
       }
     } catch {
-      if (!useCache) {
+      if (seq !== loadSeq) return;
+      if (stillThis() && !useCache) {
         state.list = [];
         state.error = '电台目录暂时连不上，请稍后重试';
       }
     } finally {
-      state.loading = false;
-      render();
+      if (stillThis()) {
+        state.loading = false;
+        render();
+      }
     }
   }
 
