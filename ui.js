@@ -22,6 +22,8 @@
     coverFail: {},
     toastTimer: 0,
     busy: false,
+    regionId: 'gd',
+    regions: [],
   };
 
   let playSeq = 0;
@@ -55,6 +57,8 @@
       ? storage.get('stationBook', {})
       : {};
   state.lastId = typeof storage.get('lastId', '') === 'string' ? storage.get('lastId', '') : '';
+  const savedRegion = storage.get('regionId', 'gd');
+  state.regionId = typeof savedRegion === 'string' && savedRegion ? savedRegion : 'gd';
   const vol0 = Number(storage.get('volume', 0.8));
   const volume = Number.isFinite(vol0) ? Math.min(1, Math.max(0, vol0)) : 0.8;
   $('vol').value = String(Math.round(volume * 100));
@@ -120,7 +124,11 @@
     if (!rows.length) {
       el.hidden = false;
       el.textContent =
-        state.tab === 'fav' && !state.q ? '还没有收藏的电台' : '没有找到电台';
+        state.tab === 'fav' && !state.q
+          ? '还没有收藏的电台'
+          : state.tab === 'cat'
+            ? '这个地区暂时没有可列出的电台'
+            : '没有找到电台';
       $('list').innerHTML = '';
       return true;
     }
@@ -129,9 +137,35 @@
     return false;
   }
 
+  function renderChips() {
+    const el = $('chips');
+    if (state.tab !== 'cat' || state.q) {
+      el.hidden = true;
+      el.innerHTML = '';
+      return;
+    }
+    el.hidden = false;
+    el.innerHTML = '';
+    for (const r of state.regions) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = r.label;
+      btn.className = r.id === state.regionId ? 'on' : '';
+      btn.addEventListener('click', () => {
+        if (state.regionId === r.id) return;
+        state.regionId = r.id;
+        storage.set('regionId', r.id);
+        load();
+      });
+      el.append(btn);
+    }
+  }
+
   function render() {
     $('tab-hot').classList.toggle('on', state.tab === 'hot');
+    $('tab-cat').classList.toggle('on', state.tab === 'cat');
     $('tab-fav').classList.toggle('on', state.tab === 'fav');
+    renderChips();
     if (renderEmpty()) {
       renderPlayer();
       return;
@@ -161,7 +195,12 @@
       name.textContent = s.name;
       const sub = document.createElement('div');
       sub.className = 'sub';
-      const bits = [s.country, s.bitrate ? `${s.bitrate}kbps` : '', s.playable ? s.codec : '暂不支持']
+      const bits = [
+        s.country,
+        s.votes ? `热度 ${s.votes}` : '',
+        s.bitrate ? `${s.bitrate}kbps` : '',
+        s.playable ? s.codec : '暂不支持',
+      ]
         .filter(Boolean)
         .join(' · ');
       sub.textContent = bits;
@@ -429,9 +468,23 @@
     state.error = '';
     render();
     try {
-      const res = state.q
-        ? await call('search', { q: state.q })
-        : await call('discover', {});
+      let res;
+      if (state.q) {
+        res = await call('search', { q: state.q });
+      } else if (state.tab === 'cat') {
+        if (!state.regions.length) {
+          const meta = await call('regions', {});
+          if (meta?.ok && Array.isArray(meta.regions)) {
+            state.regions = meta.regions;
+            if (!state.regions.some((r) => r.id === state.regionId)) {
+              state.regionId = meta.defaultId || 'gd';
+            }
+          }
+        }
+        res = await call('byRegion', { id: state.regionId });
+      } else {
+        res = await call('discover', {});
+      }
       if (!res?.ok) {
         state.list = [];
         state.error = res?.error || '电台目录暂时连不上，请稍后重试';
@@ -451,7 +504,19 @@
 
   $('tab-hot').onclick = () => {
     state.tab = 'hot';
-    render();
+    if (state.q) {
+      $('q').value = '';
+      state.q = '';
+    }
+    load();
+  };
+  $('tab-cat').onclick = () => {
+    state.tab = 'cat';
+    if (state.q) {
+      $('q').value = '';
+      state.q = '';
+    }
+    load();
   };
   $('tab-fav').onclick = () => {
     state.tab = 'fav';

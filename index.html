@@ -72,6 +72,28 @@
         border-color: var(--line);
         background: var(--muted-bg);
       }
+      .chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 8px;
+        max-height: 88px;
+        overflow: auto;
+      }
+      .chips button {
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 2px 10px;
+        background: transparent;
+        color: var(--muted-fg);
+        font: inherit;
+        cursor: pointer;
+      }
+      .chips button.on {
+        background: var(--fg);
+        color: var(--bg);
+        border-color: var(--fg);
+      }
       .msg {
         padding: 16px 12px;
         color: var(--muted-fg);
@@ -189,8 +211,10 @@
       <input id="q" type="search" placeholder="搜索电台" autocomplete="off" />
       <div class="tabs">
         <button type="button" id="tab-hot" class="on">热门</button>
+        <button type="button" id="tab-cat">分类</button>
         <button type="button" id="tab-fav">收藏</button>
       </div>
+      <div id="chips" class="chips" hidden></div>
     </header>
     <ul id="list" class="list"></ul>
     <div id="empty" class="msg" hidden></div>

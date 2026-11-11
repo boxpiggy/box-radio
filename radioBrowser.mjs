@@ -1,10 +1,14 @@
 import dns from 'node:dns/promises';
 import { mapStations } from './station.mjs';
+import { filterRegion, findRegion } from './regions.mjs';
 
 export const USER_AGENT = 'BoxRadio/0.1.0';
 const DISCOVERY_HOST = 'all.api.radio-browser.info';
 const FALLBACK_HOST = 'de1.api.radio-browser.info';
 const NODE_TIMEOUT_MS = 8_000;
+const CN_LIMIT = 1000;
+const HOT_LIMIT = 100;
+const REGION_LIMIT = 80;
 
 export class DirectoryError extends Error {
   constructor(message = '电台目录暂时连不上，请稍后重试') {
@@ -55,12 +59,22 @@ async function discoverHosts(resolve4 = dns.resolve4.bind(dns), reverse = dns.re
 export function createRadioBrowser(opts = {}) {
   const fetchApi = opts.fetchApi || fetch;
   let hostsPromise = null;
+  let cnPromise = null;
 
   const hosts = () => {
     if (!hostsPromise) {
       hostsPromise = discoverHosts(opts.resolve4, opts.reverse);
     }
     return hostsPromise;
+  };
+
+  const loadCn = () => {
+    if (!cnPromise) {
+      cnPromise = json(
+        `/json/stations/search?countrycode=CN&hidebroken=true&order=votes&reverse=true&limit=${CN_LIMIT}`,
+      ).then((raw) => mapStations(raw));
+    }
+    return cnPromise;
   };
 
   /**
@@ -101,10 +115,8 @@ export function createRadioBrowser(opts = {}) {
 
   return {
     async discover() {
-      const raw = await json(
-        '/json/stations/search?countrycode=CN&hidebroken=true&order=votes&reverse=true&limit=50',
-      );
-      return mapStations(raw);
+      const all = await loadCn();
+      return all.slice(0, HOT_LIMIT);
     },
     async search(q) {
       const name = encodeURIComponent(q);
@@ -112,6 +124,23 @@ export function createRadioBrowser(opts = {}) {
         `/json/stations/search?name=${name}&hidebroken=true&order=votes&reverse=true&limit=50`,
       );
       return mapStations(raw);
+    },
+    async byRegion(id) {
+      const region = findRegion(id);
+      /** @type {any[]} */
+      let pool = [];
+      if (region.countrycodes?.length) {
+        for (const cc of region.countrycodes) {
+          const raw = await json(
+            `/json/stations/search?countrycode=${encodeURIComponent(cc)}&hidebroken=true&order=votes&reverse=true&limit=200`,
+          );
+          pool = pool.concat(mapStations(raw));
+        }
+        pool = pool.concat(await loadCn());
+      } else {
+        pool = await loadCn();
+      }
+      return filterRegion(pool, region, REGION_LIMIT);
     },
     async click(id) {
       const raw = await json(`/json/url/${encodeURIComponent(id)}`);

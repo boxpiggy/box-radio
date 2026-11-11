@@ -56,11 +56,13 @@ export function normalizeStation(raw) {
     .map((t) => t.trim().toLowerCase())
     .filter(Boolean)
     .slice(0, 5);
+  const votes = Number(row.votes);
 
   return {
     id,
     name,
     country: String(row.countrycode ?? '').trim().toUpperCase(),
+    state: String(row.state ?? '').trim(),
     codec,
     bitrate: Number.isFinite(bitrate) && bitrate > 0 ? Math.round(bitrate) : 0,
     hls,
@@ -69,6 +71,7 @@ export function normalizeStation(raw) {
     hasFavicon: /^https?:\/\//i.test(favicon),
     favicon: /^https?:\/\//i.test(favicon) ? favicon : '',
     tags,
+    votes: Number.isFinite(votes) && votes > 0 ? Math.round(votes) : 0,
   };
 }
 

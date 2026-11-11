@@ -62,3 +62,49 @@ test('all nodes down become DirectoryError', async () => {
   });
   await assert.rejects(() => api.discover(), DirectoryError);
 });
+
+test('byRegion filters the CN catalog to Guangdong and sorts votes', async () => {
+  const api = createRadioBrowser({
+    resolve4: async () => ['1.2.3.4'],
+    reverse: async () => ['n1.api.radio-browser.info'],
+    fetchApi: async () => ({
+      status: 200,
+      ok: true,
+      json: async () => [
+        {
+          stationuuid: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+          name: '北京新闻广播',
+          countrycode: 'CN',
+          codec: 'MP3',
+          hls: 0,
+          lastcheckok: 1,
+          votes: 100,
+        },
+        {
+          stationuuid: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+          name: '广东新闻广播',
+          countrycode: 'CN',
+          codec: 'MP3',
+          hls: 0,
+          lastcheckok: 1,
+          votes: 3,
+        },
+        {
+          stationuuid: 'cccccccc-cccc-cccc-cccc-cccccccccccc',
+          name: '深圳飞扬971',
+          countrycode: 'CN',
+          state: 'Guangdong',
+          codec: 'MP3',
+          hls: 0,
+          lastcheckok: 1,
+          votes: 20,
+        },
+      ],
+    }),
+  });
+  const list = await api.byRegion('gd');
+  assert.deepEqual(list.map((s) => s.id), [
+    'cccccccc-cccc-cccc-cccc-cccccccccccc',
+    'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+  ]);
+});

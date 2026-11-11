@@ -1,6 +1,7 @@
 import { fetchCover } from './cover.mjs';
 import { createLivePump } from './pump.mjs';
 import { createRadioBrowser, DirectoryError } from './radioBrowser.mjs';
+import { DEFAULT_REGION, REGIONS } from './regions.mjs';
 import { mimeForCodec } from './station.mjs';
 
 const UUID_RE =
@@ -71,6 +72,21 @@ export function activate(enso) {
       }
       if (q.length > 80) return { ok: false, error: '没有找到电台' };
       const stations = await api.search(q);
+      remember(stations);
+      return { ok: true, stations };
+    }),
+  );
+
+  enso.renderer.handle('regions', () => ({
+    ok: true,
+    defaultId: DEFAULT_REGION,
+    regions: REGIONS.map((r) => ({ id: r.id, label: r.label })),
+  }));
+
+  enso.renderer.handle('byRegion', (args) =>
+    asDirectory(async () => {
+      const id = String(args?.id ?? DEFAULT_REGION).trim() || DEFAULT_REGION;
+      const stations = await api.byRegion(id);
       remember(stations);
       return { ok: true, stations };
     }),
