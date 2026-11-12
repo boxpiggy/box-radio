@@ -123,7 +123,23 @@ export function activate(enso) {
 
       const codec = cached?.codec && cached.codec !== 'OTHER' ? cached.codec : codecFromUrl(url);
       const mime = mimeForCodec(codec);
-      const next = createLivePump({ id, url, mime });
+      const next = createLivePump({
+        id,
+        url,
+        mime,
+        refreshUrl: async () => {
+          try {
+            const clicked = await api.click(id);
+            if (clicked.url) {
+              streamUrls.set(id, clicked.url);
+              return clicked.url;
+            }
+          } catch {
+            /* ignore */
+          }
+          return '';
+        },
+      });
       pump = next;
       const ok = await next.waitOpen();
       if (!ok || pump !== next) {

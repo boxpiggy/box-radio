@@ -8,6 +8,9 @@ export const CHUNK_BYTES = 8 * 1024;
 export const FIRST_CHUNK_BYTES = 8 * 1024;
 const MAX_CHUNKS = 32;
 const OPEN_WAIT_MS = 12_000;
+const MAX_RECONNECT = 12;
+const SHORT_BYTES = 24 * 1024;
+const SHORT_MS = 2_500;
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
@@ -34,7 +37,7 @@ async function openStream(url, ac, fetchApi) {
         redirect: 'follow',
         signal: ac.signal,
       });
-      if (res.ok && res.body) return res;
+      if (res.ok && res.body) return { res, url: u };
       lastErr = new Error(`http ${res.status}`);
     } catch (err) {
       lastErr = err;
@@ -44,7 +47,7 @@ async function openStream(url, ac, fetchApi) {
   throw lastErr || new Error('stream failed');
 }
 
-export function createLivePump({ id, url, mime, fetchApi = fetch }) {
+export function createLivePump({ id, url, mime, fetchApi = fetch, refreshUrl }) {
   const ac = new AbortController();
   /** @type {Buffer[]} */
   const queue = [];
@@ -53,49 +56,90 @@ export function createLivePump({ id, url, mime, fetchApi = fetch }) {
   let gotAudio = false;
 
   const run = async () => {
-    try {
-      const res = await openStream(url, ac, fetchApi);
-      if (!res.ok || !res.body) {
-        error = '无法播放此电台';
-        eof = true;
-        return;
-      }
-      const ctype = String(res.headers.get('content-type') || '').toLowerCase();
-      if (
-        !/audio\/mpeg|audio\/mp3|audio\/aac|audio\/aacp|application\/octet-stream/.test(ctype)
-      ) {
-        console.warn('[box.radio] unexpected content-type', ctype);
-      }
-      const metaint = Number(res.headers.get('icy-metaint') || 0);
-      const stripper = new IcyStripper(metaint);
-      const syncer = new SyncSkipper();
-      const chunker = new ByteChunker(CHUNK_BYTES, FIRST_CHUNK_BYTES);
-      const enqueue = (buf) => {
-        queue.push(buf);
-        while (queue.length > MAX_CHUNKS) queue.shift();
-      };
-      const reader = res.body.getReader();
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (ac.signal.aborted) break;
-        if (!value?.length) continue;
-        stripper.push(value, (audio) => {
-          syncer.push(audio, (aligned) => {
-            if (aligned.length) gotAudio = true;
-            chunker.push(aligned, enqueue);
+    const chunker = new ByteChunker(CHUNK_BYTES, FIRST_CHUNK_BYTES);
+    const enqueue = (buf) => {
+      queue.push(buf);
+      while (queue.length > MAX_CHUNKS) queue.shift();
+    };
+    let currentUrl = url;
+    let shortStreak = 0;
+    for (let attempt = 1; attempt <= MAX_RECONNECT && !ac.signal.aborted; attempt++) {
+      const t0 = Date.now();
+      let bytes = 0;
+      let reason = 'done';
+      let usedUrl = currentUrl;
+      let contentLength = null;
+      try {
+        const opened = await openStream(currentUrl, ac, fetchApi);
+        const res = opened.res;
+        usedUrl = opened.url;
+        contentLength = res.headers.get('content-length');
+        const ctype = String(res.headers.get('content-type') || '').toLowerCase();
+        if (
+          !/audio\/mpeg|audio\/mp3|audio\/aac|audio\/aacp|application\/octet-stream/.test(ctype)
+        ) {
+          console.warn('[box.radio] unexpected content-type', ctype);
+        }
+        const metaint = Number(res.headers.get('icy-metaint') || 0);
+        const stripper = new IcyStripper(metaint);
+        const syncer = new SyncSkipper();
+        const reader = res.body.getReader();
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) {
+            reason = 'done';
+            break;
+          }
+          if (ac.signal.aborted) {
+            reason = 'abort';
+            break;
+          }
+          if (!value?.length) continue;
+          bytes += value.length;
+          stripper.push(value, (audio) => {
+            syncer.push(audio, (aligned) => {
+              if (aligned.length) gotAudio = true;
+              chunker.push(aligned, enqueue);
+            });
           });
-        });
+        }
+        if (!ac.signal.aborted) chunker.flush(enqueue);
+      } catch (err) {
+        reason = ac.signal.aborted
+          ? 'abort'
+          : `throw:${err?.cause?.message || err?.message || err}`;
+        if (!ac.signal.aborted) {
+          console.warn('[box.radio] pump', err?.message || err, err?.cause?.message || '');
+        }
       }
-      if (!ac.signal.aborted) chunker.flush(enqueue);
-    } catch (err) {
-      if (!ac.signal.aborted) {
-        error = '无法播放此电台';
-        console.warn('[box.radio] pump', err?.message || err);
+      const ms = Date.now() - t0;
+      console.warn(
+        '[box.radio] stream end',
+        JSON.stringify({ attempt, url: usedUrl, bytes, ms, reason, contentLength }),
+      );
+      if (ac.signal.aborted || reason === 'abort') break;
+      const short = bytes < SHORT_BYTES || ms < SHORT_MS;
+      if (short) {
+        shortStreak += 1;
+        if (typeof refreshUrl === 'function') {
+          try {
+            const next = await refreshUrl();
+            if (next) currentUrl = next;
+          } catch {
+            /* keep currentUrl */
+          }
+        }
+        if (shortStreak >= 3) {
+          error = '无法播放此电台';
+          break;
+        }
+        await sleep(400);
+        continue;
       }
-    } finally {
-      eof = true;
+      shortStreak = 0;
+      await sleep(200);
     }
+    eof = true;
   };
 
   const running = run();
