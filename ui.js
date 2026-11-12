@@ -44,7 +44,7 @@
     gain: null,
     nextTime: 0,
     token: 0,
-    skipDelay: false,
+    prevGain: null,
   };
 
   function trace(msg) {
@@ -70,7 +70,7 @@
   function stopAudio() {
     playback.token += 1;
     playback.nextTime = 0;
-    playback.skipDelay = false;
+    playback.prevGain = null;
     if (!playback.ctx || !playback.gain) return;
     try {
       playback.gain.disconnect();
@@ -98,14 +98,27 @@
     if (token !== playback.token || !playback.gain) return false;
     const src = ctx.createBufferSource();
     src.buffer = decoded;
-    src.connect(playback.gain);
+    const g = ctx.createGain();
+    src.connect(g);
+    g.connect(playback.gain);
     const now = ctx.currentTime;
-    if (playback.nextTime < now - 0.45) playback.nextTime = now;
-    const startAt = Math.max(now, playback.nextTime);
-    const skip = playback.skipDelay ? Math.min(0.052, decoded.duration / 4) : 0;
-    src.start(startAt, skip);
-    playback.nextTime = startAt + Math.max(0.05, decoded.duration - skip - 0.02);
-    playback.skipDelay = true;
+    if (playback.nextTime < now - 0.8) playback.nextTime = now + 0.02;
+    const fade = Math.min(0.08, decoded.duration / 3);
+    const startAt = Math.max(now + 0.015, playback.nextTime);
+    src.start(startAt);
+    g.gain.setValueAtTime(playback.prevGain ? 0 : 1, startAt);
+    if (playback.prevGain) {
+      g.gain.linearRampToValueAtTime(1, startAt + fade);
+      try {
+        playback.prevGain.gain.cancelScheduledValues(startAt);
+        playback.prevGain.gain.setValueAtTime(1, startAt);
+        playback.prevGain.gain.linearRampToValueAtTime(0, startAt + fade);
+      } catch {
+        /* ignore */
+      }
+    }
+    playback.prevGain = g;
+    playback.nextTime = startAt + decoded.duration - fade;
     return true;
   }
 
