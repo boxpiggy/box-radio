@@ -1,34 +1,20 @@
 import './dns-ipv4.mjs';
-import { fetchCover } from './cover.mjs';
+import { resolveCover } from './cover.mjs';
 import { createLivePump } from './pump.mjs';
 import { createRadioBrowser, DirectoryError } from './radioBrowser.mjs';
 import { DEFAULT_REGION, REGIONS } from './regions.mjs';
 import { mimeForCodec } from './station.mjs';
-import { createMpegDecoder, decodedToInt16, splitPcm } from './mpegPcm.mjs';
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** @type {null | ReturnType<typeof createLivePump>} */
 let pump = null;
-let mpeg = null;
-let pcmQ = [];
-let pcmSr = 44100;
-let pcmCh = 2;
 
 function destroyPump() {
   if (pump) {
     pump.destroy();
     pump = null;
-  }
-  pcmQ = [];
-  if (mpeg) {
-    try {
-      mpeg.free();
-    } catch {
-      /* ignore */
-    }
-    mpeg = null;
   }
 }
 
@@ -39,21 +25,6 @@ function isHlsUrl(url) {
 function codecFromUrl(url) {
   if (/\.aac(\?|#|$)/i.test(url)) return 'AAC';
   return 'MP3';
-}
-
-async function ensureMpeg() {
-  if (!mpeg) {
-    mpeg = await createMpegDecoder();
-  }
-  return mpeg;
-}
-
-function enqueuePcm(decoded) {
-  const packed = decodedToInt16(decoded);
-  if (!packed) return;
-  pcmSr = packed.sr;
-  pcmCh = packed.ch;
-  pcmQ.push(...splitPcm(packed.buf));
 }
 
 export function activate(enso) {
@@ -183,30 +154,16 @@ export function activate(enso) {
   enso.renderer.handle('chunk', (args) => {
     const id = String(args?.id ?? '').trim();
     if (!pump || pump.id !== id) return { ok: false, reason: 'stale' };
-    return (async () => {
-      while (!pcmQ.length) {
-        const piece = pump.take();
-        if (piece.empty) {
-          return { ok: true, empty: true, eof: piece.eof, error: piece.error };
-        }
-        try {
-          const dec = await ensureMpeg();
-          enqueuePcm(dec.decode(new Uint8Array(piece.buf)));
-        } catch (err) {
-          console.warn('[box.radio] decode', err?.message || err);
-          return { ok: true, empty: true, eof: false };
-        }
-      }
-      const slice = pcmQ.shift();
-      return {
-        ok: true,
-        empty: false,
-        eof: false,
-        sr: pcmSr,
-        ch: pcmCh,
-        pcm: slice.toString('base64'),
-      };
-    })();
+    const piece = pump.take();
+    if (piece.empty) {
+      return { ok: true, empty: true, eof: piece.eof, error: piece.error };
+    }
+    return {
+      ok: true,
+      empty: false,
+      eof: false,
+      mp3: piece.buf.toString('base64'),
+    };
   });
 
   enso.renderer.handle('stop', () => {
@@ -221,7 +178,7 @@ export function activate(enso) {
 
   enso.renderer.handle('cover', async (args) => {
     try {
-      return await fetchCover(String(args?.url ?? ''));
+      return await resolveCover(String(args?.id ?? ''), String(args?.url ?? ''));
     } catch {
       return { ok: false };
     }

@@ -42,13 +42,36 @@
   const playback = {
     ctx: null,
     gain: null,
-    nextTime: 0,
-    token: 0,
-    prevGain: null,
+    makeup: null,
+    compressor: null,
+    source: null,
   };
+
+  const MAKEUP = 10 ** (10 / 20);
 
   function trace(msg) {
     call('trace', { msg: String(msg) }).catch(() => {});
+  }
+
+  function userVolume() {
+    return Number($('vol').value) / 100;
+  }
+
+  function connectGraph() {
+    const ctx = playback.ctx;
+    playback.compressor = ctx.createDynamicsCompressor();
+    playback.compressor.threshold.value = -24;
+    playback.compressor.knee.value = 12;
+    playback.compressor.ratio.value = 4;
+    playback.compressor.attack.value = 0.003;
+    playback.compressor.release.value = 0.25;
+    playback.makeup = ctx.createGain();
+    playback.makeup.gain.value = MAKEUP;
+    playback.gain = ctx.createGain();
+    playback.gain.gain.value = userVolume();
+    playback.compressor.connect(playback.makeup);
+    playback.makeup.connect(playback.gain);
+    playback.gain.connect(ctx.destination);
   }
 
   function unlockAudio() {
@@ -57,55 +80,17 @@
     try {
       if (!playback.ctx) {
         playback.ctx = new AC();
-        playback.gain = playback.ctx.createGain();
-        playback.gain.connect(playback.ctx.destination);
-        playback.gain.gain.value = Number($('vol').value) / 100;
+        connectGraph();
+      }
+      if (!playback.source) {
+        playback.source = playback.ctx.createMediaElementSource($('audio'));
+        playback.source.connect(playback.compressor);
+        $('audio').volume = 1;
       }
       playback.ctx.resume();
     } catch (err) {
       trace(`unlockAudio ${err?.message || err}`);
     }
-  }
-
-  function stopAudio() {
-    playback.token += 1;
-    playback.nextTime = 0;
-    playback.prevGain = null;
-    if (!playback.ctx || !playback.gain) return;
-    try {
-      playback.gain.disconnect();
-      playback.gain = playback.ctx.createGain();
-      playback.gain.connect(playback.ctx.destination);
-      playback.gain.gain.value = Number($('vol').value) / 100;
-    } catch {
-      /* ignore */
-    }
-  }
-
-  function feedPcm(b64, sr, ch, token) {
-    const ctx = playback.ctx;
-    if (!ctx || token !== playback.token || !playback.gain) return false;
-    const raw = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
-    const copy = new ArrayBuffer(raw.byteLength);
-    new Uint8Array(copy).set(raw);
-    const int16 = new Int16Array(copy);
-    const nch = ch > 0 ? ch : 1;
-    const frames = Math.floor(int16.length / nch);
-    if (!frames) return false;
-    const ab = ctx.createBuffer(nch, frames, sr || 44100);
-    for (let c = 0; c < nch; c++) {
-      const data = ab.getChannelData(c);
-      for (let i = 0; i < frames; i++) data[i] = int16[i * nch + c] / 32768;
-    }
-    const src = ctx.createBufferSource();
-    src.buffer = ab;
-    src.connect(playback.gain);
-    const now = ctx.currentTime;
-    if (playback.nextTime < now - 0.8) playback.nextTime = now;
-    const startAt = Math.max(now, playback.nextTime);
-    src.start(startAt);
-    playback.nextTime = startAt + ab.duration;
-    return true;
   }
 
   const storage = {
@@ -145,6 +130,15 @@
     state.toastTimer = setTimeout(() => {
       el.hidden = true;
     }, 2200);
+  }
+
+  function skipToFrame(u8) {
+    for (let i = 0; i < u8.length - 1; i++) {
+      if (u8[i] === 0xff && (u8[i + 1] & 0xe0) === 0xe0) {
+        return i === 0 ? u8 : u8.subarray(i);
+      }
+    }
+    return u8;
   }
 
   function saveFav() {
@@ -429,12 +423,11 @@
   let coverBusy = 0;
   function queueCovers() {
     for (const s of displayed()) {
-      if (!s.hasFavicon || !s.favicon) continue;
       if (state.covers[s.id] || state.coverFail[s.id]) continue;
       if (coverBusy >= 2) return;
       coverBusy += 1;
       state.coverFail[s.id] = true;
-      call('cover', { id: s.id, url: s.favicon })
+      call('cover', { id: s.id, url: s.favicon || '' })
         .then((res) => {
           if (res?.ok && res.dataUrl) {
             state.covers[s.id] = res.dataUrl;
@@ -452,7 +445,6 @@
 
   function tearMedia() {
     media.looping = false;
-    stopAudio();
     const audio = $('audio');
     try {
       audio.pause();
@@ -466,7 +458,6 @@
     media.ms = null;
     media.sb = null;
     audio.removeAttribute('src');
-    audio.load();
   }
 
   async function stopAll() {
@@ -482,10 +473,11 @@
   }
 
   async function loopChunks(id) {
-    const token = playback.token;
-    let decodedOk = 0;
-    let decodeFail = 0;
+    const audio = $('audio');
     let lastCall = 0;
+    let started = false;
+    const sbLive = (sb) =>
+      media.looping && state.currentId === id && media.sb === sb && media.ms?.readyState === 'open';
     while (media.looping && state.currentId === id) {
       const gap = 200 - (Date.now() - lastCall);
       if (gap > 0) await new Promise((r) => setTimeout(r, gap));
@@ -520,23 +512,58 @@
       if (res.empty) {
         continue;
       }
-      if (!res.pcm) continue;
-      const ok = feedPcm(res.pcm, res.sr, res.ch, token);
-      if (ok) decodedOk += 1;
-      else decodeFail += 1;
-      if (!decodedOk && decodeFail >= 8) {
-        toast('无法播放此电台');
-        await stopAll();
-        return;
+      if (!res.mp3) continue;
+      const buf = Uint8Array.from(atob(res.mp3), (c) => c.charCodeAt(0));
+      const sb = media.sb;
+      if (!sbLive(sb)) return;
+      try {
+        if (sb.updating) {
+          await new Promise((r) => sb.addEventListener('updateend', r, { once: true }));
+        }
+        if (!sbLive(sb)) return;
+        if (sb.buffered.length) {
+          const start = sb.buffered.start(0);
+          const end = sb.buffered.end(sb.buffered.length - 1);
+          if (end - start > 30 && audio.currentTime - start > 12) {
+            sb.remove(start, Math.max(start, audio.currentTime - 8));
+            await new Promise((r) => sb.addEventListener('updateend', r, { once: true }));
+          }
+        }
+        if (!sbLive(sb)) return;
+        sb.appendBuffer(buf);
+        await new Promise((r) => sb.addEventListener('updateend', r, { once: true }));
+      } catch {
+        if (!sbLive(sb)) return;
+        try {
+          const aligned = skipToFrame(buf);
+          if (!aligned.length) throw new Error('bad frame');
+          if (sb.updating) {
+            await new Promise((r) => sb.addEventListener('updateend', r, { once: true }));
+          }
+          if (!sbLive(sb)) return;
+          sb.appendBuffer(aligned);
+          await new Promise((r) => sb.addEventListener('updateend', r, { once: true }));
+        } catch {
+          if (!sbLive(sb)) return;
+          toast('无法播放此电台');
+          await stopAll();
+          return;
+        }
+      }
+      if (!started && sbLive(sb)) {
+        started = true;
+        audio.play().catch((err) => {
+          trace(`audio.play ${err?.message || err}`);
+        });
       }
     }
   }
 
   async function startPlay(station) {
     if (state.busy) return;
+    state.busy = true;
     unlockAudio();
     const seq = ++playSeq;
-    state.busy = true;
     try {
     await stopAll();
     unlockAudio();
@@ -566,11 +593,34 @@
     storage.set('lastId', station.id);
     state.book[station.id] = station;
     saveFav();
-    if (!playback.ctx) {
-      trace('no AudioContext');
-      toast('无法播放此电台');
-      return;
-    }
+    const audio = $('audio');
+    const ms = new MediaSource();
+    media.ms = ms;
+    media.objectUrl = URL.createObjectURL(ms);
+    audio.src = media.objectUrl;
+    await new Promise((resolve, reject) => {
+      ms.addEventListener(
+        'sourceopen',
+        () => {
+          try {
+            const sb = ms.addSourceBuffer(res.mime || 'audio/mpeg');
+            media.sb = sb;
+            resolve();
+          } catch (err) {
+            reject(err);
+          }
+        },
+        { once: true },
+      );
+    }).catch(async () => {
+      trace('sourceopen fail');
+      if (seq === playSeq) {
+        toast('无法播放此电台');
+        await stopAll();
+      }
+    });
+    if (seq !== playSeq) return;
+    if (!media.sb) return;
     media.looping = true;
     state.playing = true;
     render();
@@ -739,8 +789,12 @@
   };
   $('vol').addEventListener('input', () => {
     const v = Number($('vol').value) / 100;
-    $('audio').volume = v;
-    if (playback.gain) playback.gain.gain.value = v;
+    if (playback.source) {
+      $('audio').volume = 1;
+      if (playback.gain) playback.gain.gain.value = v;
+    } else {
+      $('audio').volume = v;
+    }
     storage.set('volume', v);
   });
 
