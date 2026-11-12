@@ -98,10 +98,10 @@
     src.buffer = decoded;
     src.connect(playback.gain);
     const now = ctx.currentTime;
-    if (playback.nextTime < now - 0.2) playback.nextTime = now;
+    if (playback.nextTime < now - 0.45) playback.nextTime = now;
     const startAt = Math.max(now, playback.nextTime);
     src.start(startAt);
-    playback.nextTime = startAt + decoded.duration;
+    playback.nextTime = startAt + Math.max(0, decoded.duration - 0.03);
     return true;
   }
 
@@ -161,6 +161,22 @@
       }
     }
     return u8;
+  }
+
+  function concatBytes(a, b) {
+    const out = new Uint8Array(a.length + b.length);
+    out.set(a, 0);
+    out.set(b, a.length);
+    return out;
+  }
+
+  function cutOnFrame(u8, target) {
+    const end = Math.min(u8.length - 2, target);
+    const from = Math.max(1, end - 2048);
+    for (let i = end; i >= from; i--) {
+      if (u8[i] === 0xff && (u8[i + 1] & 0xe0) === 0xe0) return i;
+    }
+    return target;
   }
 
   function displayed() {
@@ -467,6 +483,9 @@
     let decodedOk = 0;
     let decodeFail = 0;
     let lastCall = 0;
+    let acc = new Uint8Array(0);
+    const DECODE_BYTES = 32 * 1024;
+    let primed = false;
     while (media.looping && state.currentId === id) {
       const gap = 200 - (Date.now() - lastCall);
       if (gap > 0) await new Promise((r) => setTimeout(r, gap));
@@ -494,6 +513,7 @@
       }
       if (res.eof) {
         trace(`chunk eof ${res.error || ''}`);
+        if (acc.length && token === playback.token) await feedAudio(acc, token);
         toast(res.error || '直播中断，点击重试');
         await stopAll();
         return;
@@ -502,13 +522,22 @@
         continue;
       }
       const buf = Uint8Array.from(atob(res.b64), (c) => c.charCodeAt(0));
-      const ok = await feedAudio(buf, token);
-      if (ok) decodedOk += 1;
-      else decodeFail += 1;
-      if (!decodedOk && decodeFail >= 6) {
-        toast('无法播放此电台');
-        await stopAll();
-        return;
+      acc = concatBytes(acc, buf);
+      while (acc.length >= (primed ? DECODE_BYTES : 16 * 1024)) {
+        const need = primed ? DECODE_BYTES : 16 * 1024;
+        let cut = cutOnFrame(acc, need);
+        if (cut < 4096) cut = need;
+        const piece = acc.subarray(0, cut);
+        acc = acc.slice(cut);
+        const ok = await feedAudio(piece, token);
+        if (ok) primed = true;
+        if (ok) decodedOk += 1;
+        else decodeFail += 1;
+        if (!decodedOk && decodeFail >= 6) {
+          toast('无法播放此电台');
+          await stopAll();
+          return;
+        }
       }
     }
   }
