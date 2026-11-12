@@ -44,6 +44,7 @@
     gain: null,
     nextTime: 0,
     token: 0,
+    skipDelay: false,
   };
 
   function trace(msg) {
@@ -69,6 +70,7 @@
   function stopAudio() {
     playback.token += 1;
     playback.nextTime = 0;
+    playback.skipDelay = false;
     if (!playback.ctx || !playback.gain) return;
     try {
       playback.gain.disconnect();
@@ -100,8 +102,10 @@
     const now = ctx.currentTime;
     if (playback.nextTime < now - 0.45) playback.nextTime = now;
     const startAt = Math.max(now, playback.nextTime);
-    src.start(startAt);
-    playback.nextTime = startAt + Math.max(0, decoded.duration - 0.03);
+    const skip = playback.skipDelay ? Math.min(0.052, decoded.duration / 4) : 0;
+    src.start(startAt, skip);
+    playback.nextTime = startAt + Math.max(0.05, decoded.duration - skip - 0.02);
+    playback.skipDelay = true;
     return true;
   }
 
@@ -484,8 +488,31 @@
     let decodeFail = 0;
     let lastCall = 0;
     let acc = new Uint8Array(0);
-    const DECODE_BYTES = 32 * 1024;
-    let primed = false;
+    const DECODE_BYTES = 16 * 1024;
+    const decodeQueue = [];
+    let decodeBusy = false;
+    const kickDecode = () => {
+      if (decodeBusy) return;
+      decodeBusy = true;
+      (async () => {
+        try {
+          while (decodeQueue.length && media.looping && token === playback.token) {
+            const piece = decodeQueue.shift();
+            const ok = await feedAudio(piece, token);
+            if (ok) decodedOk += 1;
+            else decodeFail += 1;
+            if (!decodedOk && decodeFail >= 8) {
+              toast('无法播放此电台');
+              await stopAll();
+              return;
+            }
+          }
+        } finally {
+          decodeBusy = false;
+          if (decodeQueue.length && media.looping && token === playback.token) kickDecode();
+        }
+      })();
+    };
     while (media.looping && state.currentId === id) {
       const gap = 200 - (Date.now() - lastCall);
       if (gap > 0) await new Promise((r) => setTimeout(r, gap));
@@ -514,6 +541,7 @@
       if (res.eof) {
         trace(`chunk eof ${res.error || ''}`);
         if (acc.length && token === playback.token) await feedAudio(acc, token);
+        while (decodeBusy) await new Promise((r) => setTimeout(r, 40));
         toast(res.error || '直播中断，点击重试');
         await stopAll();
         return;
@@ -523,21 +551,14 @@
       }
       const buf = Uint8Array.from(atob(res.b64), (c) => c.charCodeAt(0));
       acc = concatBytes(acc, buf);
-      while (acc.length >= (primed ? DECODE_BYTES : 16 * 1024)) {
-        const need = primed ? DECODE_BYTES : 16 * 1024;
-        let cut = cutOnFrame(acc, need);
-        if (cut < 4096) cut = need;
+      while (acc.length >= DECODE_BYTES) {
+        let cut = cutOnFrame(acc, DECODE_BYTES);
+        if (cut < 4096) cut = DECODE_BYTES;
         const piece = acc.subarray(0, cut);
         acc = acc.slice(cut);
-        const ok = await feedAudio(piece, token);
-        if (ok) primed = true;
-        if (ok) decodedOk += 1;
-        else decodeFail += 1;
-        if (!decodedOk && decodeFail >= 6) {
-          toast('无法播放此电台');
-          await stopAll();
-          return;
-        }
+        if (decodeQueue.length > 10) decodeQueue.shift();
+        decodeQueue.push(piece.slice());
+        kickDecode();
       }
     }
   }
