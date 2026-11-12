@@ -82,43 +82,29 @@
     }
   }
 
-  async function feedAudio(u8, token) {
+  function feedPcm(b64, sr, ch, token) {
     const ctx = playback.ctx;
-    if (!ctx || token !== playback.token) return;
-    if (!ctx || token !== playback.token) return false;
-    const copy = u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength);
-    let decoded;
-    try {
-      decoded = await ctx.decodeAudioData(copy);
-    } catch (err) {
-      trace(`decode ${err?.message || err}`);
-      return false;
+    if (!ctx || token !== playback.token || !playback.gain) return false;
+    const raw = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    const copy = new ArrayBuffer(raw.byteLength);
+    new Uint8Array(copy).set(raw);
+    const int16 = new Int16Array(copy);
+    const nch = ch > 0 ? ch : 1;
+    const frames = Math.floor(int16.length / nch);
+    if (!frames) return false;
+    const ab = ctx.createBuffer(nch, frames, sr || 44100);
+    for (let c = 0; c < nch; c++) {
+      const data = ab.getChannelData(c);
+      for (let i = 0; i < frames; i++) data[i] = int16[i * nch + c] / 32768;
     }
-    if (token !== playback.token || !playback.gain) return;
-    if (token !== playback.token || !playback.gain) return false;
     const src = ctx.createBufferSource();
-    src.buffer = decoded;
-    const g = ctx.createGain();
-    src.connect(g);
-    g.connect(playback.gain);
+    src.buffer = ab;
+    src.connect(playback.gain);
     const now = ctx.currentTime;
-    if (playback.nextTime < now - 0.8) playback.nextTime = now + 0.02;
-    const fade = Math.min(0.08, decoded.duration / 3);
-    const startAt = Math.max(now + 0.015, playback.nextTime);
+    if (playback.nextTime < now - 0.8) playback.nextTime = now;
+    const startAt = Math.max(now, playback.nextTime);
     src.start(startAt);
-    g.gain.setValueAtTime(playback.prevGain ? 0 : 1, startAt);
-    if (playback.prevGain) {
-      g.gain.linearRampToValueAtTime(1, startAt + fade);
-      try {
-        playback.prevGain.gain.cancelScheduledValues(startAt);
-        playback.prevGain.gain.setValueAtTime(1, startAt);
-        playback.prevGain.gain.linearRampToValueAtTime(0, startAt + fade);
-      } catch {
-        /* ignore */
-      }
-    }
-    playback.prevGain = g;
-    playback.nextTime = startAt + decoded.duration - fade;
+    playback.nextTime = startAt + ab.duration;
     return true;
   }
 
@@ -500,32 +486,6 @@
     let decodedOk = 0;
     let decodeFail = 0;
     let lastCall = 0;
-    let acc = new Uint8Array(0);
-    const DECODE_BYTES = 16 * 1024;
-    const decodeQueue = [];
-    let decodeBusy = false;
-    const kickDecode = () => {
-      if (decodeBusy) return;
-      decodeBusy = true;
-      (async () => {
-        try {
-          while (decodeQueue.length && media.looping && token === playback.token) {
-            const piece = decodeQueue.shift();
-            const ok = await feedAudio(piece, token);
-            if (ok) decodedOk += 1;
-            else decodeFail += 1;
-            if (!decodedOk && decodeFail >= 8) {
-              toast('无法播放此电台');
-              await stopAll();
-              return;
-            }
-          }
-        } finally {
-          decodeBusy = false;
-          if (decodeQueue.length && media.looping && token === playback.token) kickDecode();
-        }
-      })();
-    };
     while (media.looping && state.currentId === id) {
       const gap = 200 - (Date.now() - lastCall);
       if (gap > 0) await new Promise((r) => setTimeout(r, gap));
@@ -553,8 +513,6 @@
       }
       if (res.eof) {
         trace(`chunk eof ${res.error || ''}`);
-        if (acc.length && token === playback.token) await feedAudio(acc, token);
-        while (decodeBusy) await new Promise((r) => setTimeout(r, 40));
         toast(res.error || '直播中断，点击重试');
         await stopAll();
         return;
@@ -562,16 +520,14 @@
       if (res.empty) {
         continue;
       }
-      const buf = Uint8Array.from(atob(res.b64), (c) => c.charCodeAt(0));
-      acc = concatBytes(acc, buf);
-      while (acc.length >= DECODE_BYTES) {
-        let cut = cutOnFrame(acc, DECODE_BYTES);
-        if (cut < 4096) cut = DECODE_BYTES;
-        const piece = acc.subarray(0, cut);
-        acc = acc.slice(cut);
-        if (decodeQueue.length > 10) decodeQueue.shift();
-        decodeQueue.push(piece.slice());
-        kickDecode();
+      if (!res.pcm) continue;
+      const ok = feedPcm(res.pcm, res.sr, res.ch, token);
+      if (ok) decodedOk += 1;
+      else decodeFail += 1;
+      if (!decodedOk && decodeFail >= 8) {
+        toast('无法播放此电台');
+        await stopAll();
+        return;
       }
     }
   }

@@ -13,10 +13,10 @@ v1 数据源为 [Radio Browser](https://api.radio-browser.info/)（免 key 公�
 
 ## 开发
 
-`ash
+```bash
 node --test
-`
+```
 
-零 npm 依赖。改完后在插件行点「从来源重新安装」。
+播放用 mpg123 wasm 流式解码。从 Git 安装前在本目录执行 `npm ci`。改完后在插件行点「从来源重新安装」。
 
 许可证：MIT。
