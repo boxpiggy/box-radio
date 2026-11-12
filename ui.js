@@ -425,7 +425,7 @@
         return;
       }
       if (res.empty) {
-        await new Promise((r) => setTimeout(r, 280));
+        await new Promise((r) => setTimeout(r, 80));
         continue;
       }
       const buf = Uint8Array.from(atob(res.b64), (c) => c.charCodeAt(0));

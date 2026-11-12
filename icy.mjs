@@ -56,8 +56,14 @@ export class IcyStripper {
 
 export class ByteChunker {
   /** @param {number} size */
-  constructor(size) {
+  /**
+   * @param {number} size
+   * @param {number} [firstSize]
+   */
+  constructor(size, firstSize = size) {
     this.size = size;
+    this.firstSize = firstSize > 0 && firstSize < size ? firstSize : size;
+    this.primed = this.firstSize === this.size;
     this.buf = Buffer.alloc(0);
   }
 
@@ -69,9 +75,12 @@ export class ByteChunker {
     this.buf = this.buf.length
       ? Buffer.concat([this.buf, Buffer.from(piece)])
       : Buffer.from(piece);
-    while (this.buf.length >= this.size) {
-      onChunk(Buffer.from(this.buf.subarray(0, this.size)));
-      this.buf = Buffer.from(this.buf.subarray(this.size));
+    for (;;) {
+      const need = this.primed ? this.size : this.firstSize;
+      if (this.buf.length < need) break;
+      onChunk(Buffer.from(this.buf.subarray(0, need)));
+      this.buf = Buffer.from(this.buf.subarray(need));
+      this.primed = true;
     }
   }
 

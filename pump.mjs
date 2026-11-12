@@ -3,6 +3,8 @@ import { ByteChunker, IcyStripper } from './icy.mjs';
 export const USER_AGENT = 'BoxRadio/0.1.0';
 /** 小于 48KB：base64 + JSON 包装必须 < 64KB */
 export const CHUNK_BYTES = 40 * 1024;
+/** 首包小一些，64kbps 约 0.5s 即可起播 */
+export const FIRST_CHUNK_BYTES = 4 * 1024;
 const MAX_CHUNKS = 32;
 const OPEN_WAIT_MS = 12_000;
 
@@ -41,7 +43,7 @@ export function createLivePump({ id, url, mime, fetchApi = fetch }) {
       }
       const metaint = Number(res.headers.get('icy-metaint') || 0);
       const stripper = new IcyStripper(metaint);
-      const chunker = new ByteChunker(CHUNK_BYTES);
+      const chunker = new ByteChunker(CHUNK_BYTES, FIRST_CHUNK_BYTES);
       const enqueue = (buf) => {
         queue.push(buf);
         while (queue.length > MAX_CHUNKS) queue.shift();
@@ -81,10 +83,10 @@ export function createLivePump({ id, url, mime, fetchApi = fetch }) {
     },
     async waitOpen() {
       const start = Date.now();
-      while (!gotAudio && !eof && Date.now() - start < OPEN_WAIT_MS) {
+      while (!queue.length && !eof && Date.now() - start < OPEN_WAIT_MS) {
         await sleep(40);
       }
-      if (!gotAudio) {
+      if (!queue.length) {
         ac.abort();
         await running.catch(() => {});
         return false;

@@ -58,6 +58,7 @@ export function normalizeStation(raw) {
     .filter(Boolean)
     .slice(0, 5);
   const votes = Number(row.votes);
+  const streamUrl = String(row.url_resolved || row.url || '').trim();
 
   return {
     id,
@@ -73,6 +74,7 @@ export function normalizeStation(raw) {
     favicon: /^https?:\/\//i.test(favicon) ? favicon : '',
     tags,
     votes: Number.isFinite(votes) && votes > 0 ? Math.round(votes) : 0,
+    streamUrl,
   };
 }
 

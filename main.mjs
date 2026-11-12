@@ -30,6 +30,7 @@ export function activate(enso) {
   const api = createRadioBrowser();
   /** @type {Map<string, import('./station.mjs').normalizeStation extends Function ? any : never>} */
   const cache = new Map();
+  const streamUrls = new Map();
 
   const remember = (stations) => {
     for (const s of stations) cache.set(s.id, s);
@@ -101,15 +102,26 @@ export function activate(enso) {
       if (cached && !cached.playable) return { ok: false, reason: 'unsupported' };
 
       destroyPump();
-      const clicked = await api.click(id);
-      if (!clicked.url) return { ok: false, error: '无法播放此电台' };
-      if (isHlsUrl(clicked.url) || (cached && cached.hls)) {
+      let url = streamUrls.get(id) || cached?.streamUrl || '';
+      let name = cached?.name || '';
+      if (!url) {
+        const clicked = await api.click(id);
+        url = clicked.url;
+        name = clicked.name || name;
+        if (url) streamUrls.set(id, url);
+      } else {
+        api.click(id).then((clicked) => {
+          if (clicked?.url) streamUrls.set(id, clicked.url);
+        }).catch(() => {});
+      }
+      if (!url) return { ok: false, error: '无法播放此电台' };
+      if (isHlsUrl(url) || (cached && cached.hls)) {
         return { ok: false, reason: 'unsupported' };
       }
 
-      const codec = cached?.codec && cached.codec !== 'OTHER' ? cached.codec : codecFromUrl(clicked.url);
+      const codec = cached?.codec && cached.codec !== 'OTHER' ? cached.codec : codecFromUrl(url);
       const mime = mimeForCodec(codec);
-      const next = createLivePump({ id, url: clicked.url, mime });
+      const next = createLivePump({ id, url, mime });
       pump = next;
       const ok = await next.waitOpen();
       if (!ok || pump !== next) {
@@ -117,7 +129,7 @@ export function activate(enso) {
         if (pump === next) pump = null;
         return { ok: false, error: '无法播放此电台' };
       }
-      return { ok: true, id, name: clicked.name || cached?.name || '', mime };
+      return { ok: true, id, name, mime };
     }),
   );
 

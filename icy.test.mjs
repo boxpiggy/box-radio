@@ -39,3 +39,12 @@ test('ByteChunker splits on size and flush remainder', () => {
   c.flush((x) => chunks.push(x.toString()));
   assert.deepEqual(chunks, ['abcd', 'efgh', 'ij']);
 });
+
+test('ByteChunker emits a smaller first chunk then full size', () => {
+  const c = new ByteChunker(8, 3);
+  const chunks = [];
+  c.push(Buffer.from('abcdefghijkl'), (x) => chunks.push(x.toString()));
+  assert.deepEqual(chunks, ['abc', 'defghijk']);
+  c.flush((x) => chunks.push(x.toString()));
+  assert.deepEqual(chunks, ['abc', 'defghijk', 'l']);
+});
