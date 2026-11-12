@@ -155,6 +155,11 @@ export function activate(enso) {
     return { ok: true };
   });
 
+  enso.renderer.handle('trace', (args) => {
+    console.warn('[box.radio]', String(args?.msg ?? ''));
+    return { ok: true };
+  });
+
   enso.renderer.handle('cover', async (args) => {
     try {
       return await fetchCover(String(args?.url ?? ''));

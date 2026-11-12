@@ -39,6 +39,72 @@
     objectUrl: '',
   };
 
+  const playback = {
+    ctx: null,
+    gain: null,
+    nextTime: 0,
+    token: 0,
+  };
+
+  function trace(msg) {
+    call('trace', { msg: String(msg) }).catch(() => {});
+  }
+
+  function unlockAudio() {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    try {
+      if (!playback.ctx) {
+        playback.ctx = new AC();
+        playback.gain = playback.ctx.createGain();
+        playback.gain.connect(playback.ctx.destination);
+        playback.gain.gain.value = Number($('vol').value) / 100;
+      }
+      playback.ctx.resume();
+    } catch (err) {
+      trace(`unlockAudio ${err?.message || err}`);
+    }
+  }
+
+  function stopAudio() {
+    playback.token += 1;
+    playback.nextTime = 0;
+    if (!playback.ctx || !playback.gain) return;
+    try {
+      playback.gain.disconnect();
+      playback.gain = playback.ctx.createGain();
+      playback.gain.connect(playback.ctx.destination);
+      playback.gain.gain.value = Number($('vol').value) / 100;
+    } catch {
+      /* ignore */
+    }
+  }
+
+  async function feedAudio(u8, token) {
+    const ctx = playback.ctx;
+    if (!ctx || token !== playback.token) return;
+    if (!ctx || token !== playback.token) return false;
+    const copy = u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength);
+    let decoded;
+    try {
+      decoded = await ctx.decodeAudioData(copy);
+    } catch (err) {
+      trace(`decode ${err?.message || err}`);
+      return false;
+    }
+    if (token !== playback.token || !playback.gain) return;
+    if (token !== playback.token || !playback.gain) return false;
+    const src = ctx.createBufferSource();
+    src.buffer = decoded;
+    src.connect(playback.gain);
+    const now = ctx.currentTime;
+    if (playback.nextTime < now - 0.2) playback.nextTime = now;
+    const startAt = Math.max(now, playback.nextTime);
+    src.start(startAt);
+    playback.nextTime = startAt + decoded.duration;
+    return true;
+  }
+
   const storage = {
     get(key, fallback) {
       try {
@@ -367,6 +433,7 @@
 
   function tearMedia() {
     media.looping = false;
+    stopAudio();
     const audio = $('audio');
     try {
       audio.pause();
@@ -396,12 +463,15 @@
   }
 
   async function loopChunks(id) {
-    const audio = $('audio');
+    const token = playback.token;
+    let decodedOk = 0;
+    let decodeFail = 0;
     while (media.looping && state.currentId === id) {
       let res;
       try {
         res = await call('chunk', { id });
       } catch {
+        trace('chunk throw');
         toast('直播中断，点击重试');
         await stopAll();
         return;
@@ -409,11 +479,13 @@
       if (!media.looping || state.currentId !== id) return;
       if (!res?.ok) {
         if (res?.reason === 'stale') return;
+        trace(`chunk not ok ${res?.reason || ''}`);
         toast('直播中断，点击重试');
         await stopAll();
         return;
       }
       if (res.eof) {
+        trace(`chunk eof ${res.error || ''}`);
         toast(res.error || '直播中断，点击重试');
         await stopAll();
         return;
@@ -423,52 +495,32 @@
         continue;
       }
       const buf = Uint8Array.from(atob(res.b64), (c) => c.charCodeAt(0));
-      const sb = media.sb;
-      if (!sb) return;
-      try {
-        if (sb.updating) {
-          await new Promise((r) => sb.addEventListener('updateend', r, { once: true }));
-        }
-        if (sb.buffered.length) {
-          const start = sb.buffered.start(0);
-          const end = sb.buffered.end(sb.buffered.length - 1);
-          if (end - start > 30 && audio.currentTime - start > 12) {
-            sb.remove(start, Math.max(start, audio.currentTime - 8));
-            await new Promise((r) => sb.addEventListener('updateend', r, { once: true }));
-          }
-        }
-        sb.appendBuffer(buf);
-        await new Promise((r) => sb.addEventListener('updateend', r, { once: true }));
-      } catch {
-        try {
-          const aligned = skipToFrame(buf);
-          if (aligned === buf || !aligned.length) throw new Error('bad frame');
-          if (sb.updating) {
-            await new Promise((r) => sb.addEventListener('updateend', r, { once: true }));
-          }
-          sb.appendBuffer(aligned);
-          await new Promise((r) => sb.addEventListener('updateend', r, { once: true }));
-        } catch {
-          toast('无法播放此电台');
-          await stopAll();
-          return;
-        }
+      const ok = await feedAudio(buf, token);
+      if (ok) decodedOk += 1;
+      else decodeFail += 1;
+      if (!decodedOk && decodeFail >= 6) {
+        toast('无法播放此电台');
+        await stopAll();
+        return;
       }
     }
   }
 
   async function startPlay(station) {
     if (state.busy) return;
+    unlockAudio();
     const seq = ++playSeq;
     state.busy = true;
     try {
     await stopAll();
+    unlockAudio();
     if (seq !== playSeq) return;
     state.currentName = station.name;
     let res;
     try {
       res = await call('open', { id: station.id });
     } catch {
+      trace('open throw');
       if (seq === playSeq) toast('无法播放此电台');
       return;
     }
@@ -478,6 +530,7 @@
       return;
     }
     if (!res?.ok) {
+      trace(`open fail ${res?.error || ''}`);
       if (seq === playSeq) toast(res?.error || '无法播放此电台');
       return;
     }
@@ -487,40 +540,15 @@
     storage.set('lastId', station.id);
     state.book[station.id] = station;
     saveFav();
-
-    const audio = $('audio');
-    const ms = new MediaSource();
-    media.ms = ms;
-    media.objectUrl = URL.createObjectURL(ms);
-    audio.src = media.objectUrl;
-    await new Promise((resolve, reject) => {
-      ms.addEventListener(
-        'sourceopen',
-        () => {
-          try {
-            const sb = ms.addSourceBuffer(res.mime || 'audio/mpeg');
-            media.sb = sb;
-            resolve();
-          } catch (err) {
-            reject(err);
-          }
-        },
-        { once: true },
-      );
-    }).catch(async () => {
-      if (seq === playSeq) {
-        toast('无法播放此电台');
-        await stopAll();
-      }
-    });
-    if (seq !== playSeq) return;
-    if (!media.sb) return;
+    if (!playback.ctx) {
+      trace('no AudioContext');
+      toast('无法播放此电台');
+      return;
+    }
     media.looping = true;
     state.playing = true;
     render();
-    const playP = audio.play().catch(() => {});
     loopChunks(station.id);
-    await playP;
     } finally {
       if (seq === playSeq) state.busy = false;
     }
@@ -528,6 +556,7 @@
 
   async function onRow(s) {
     if (state.busy) return;
+    unlockAudio();
     if (!s.playable) {
       toast('此台是 HLS，当前版本还不支持');
       return;
@@ -672,6 +701,7 @@
 
   $('toggle').onclick = async () => {
     if (state.busy) return;
+    unlockAudio();
     if (state.playing) {
       await stopAll();
       render();
@@ -684,6 +714,7 @@
   $('vol').addEventListener('input', () => {
     const v = Number($('vol').value) / 100;
     $('audio').volume = v;
+    if (playback.gain) playback.gain.gain.value = v;
     storage.set('volume', v);
   });
 
