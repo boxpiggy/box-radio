@@ -1,4 +1,47 @@
 /** Icecast 间隔元数据剥除：只丢掉 meta 块，不解析标题。 */
+
+/** MP3 帧同步 0xFFE / AAC ADTS 0xFFF */
+export function findAudioSync(buf) {
+  const u8 = buf instanceof Uint8Array ? buf : Buffer.from(buf);
+  for (let i = 0; i < u8.length - 1; i++) {
+    if (u8[i] === 0xff && (u8[i + 1] & 0xe0) === 0xe0) return i;
+  }
+  return -1;
+}
+
+export class SyncSkipper {
+  constructor() {
+    this.pending = Buffer.alloc(0);
+    this.synced = false;
+  }
+
+  /**
+   * @param {Uint8Array} piece
+   * @param {(audio: Uint8Array) => void} onAudio
+   */
+  push(piece, onAudio) {
+    if (!piece?.length) return;
+    if (this.synced) {
+      onAudio(piece);
+      return;
+    }
+    this.pending = this.pending.length
+      ? Buffer.concat([this.pending, Buffer.from(piece)])
+      : Buffer.from(piece);
+    const off = findAudioSync(this.pending);
+    if (off < 0) {
+      if (this.pending.length > 64 * 1024) {
+        this.pending = Buffer.from(this.pending.subarray(this.pending.length - 2048));
+      }
+      return;
+    }
+    this.synced = true;
+    const aligned = this.pending.subarray(off);
+    this.pending = Buffer.alloc(0);
+    if (aligned.length) onAudio(aligned);
+  }
+}
+
 export class IcyStripper {
   /**
    * @param {number} metaint
