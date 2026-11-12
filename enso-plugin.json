@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "box.radio",
   "name": "Box Radio",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "在侧栏里浏览、搜索、收藏并收听互联网电台（Radio Browser，HTTP MP3/AAC）。",
   "main": "main.mjs",
   "permissions": ["ui.view"],

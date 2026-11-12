@@ -466,12 +466,21 @@
     const token = playback.token;
     let decodedOk = 0;
     let decodeFail = 0;
+    let lastCall = 0;
     while (media.looping && state.currentId === id) {
+      const gap = 200 - (Date.now() - lastCall);
+      if (gap > 0) await new Promise((r) => setTimeout(r, gap));
+      lastCall = Date.now();
       let res;
       try {
         res = await call('chunk', { id });
-      } catch {
-        trace('chunk throw');
+      } catch (err) {
+        const msg = String(err?.message || err);
+        trace(`chunk throw ${msg}`);
+        if (/频繁|熔断|RATE_LIMIT|CIRCUIT/i.test(msg)) {
+          await new Promise((r) => setTimeout(r, 1000));
+          continue;
+        }
         toast('直播中断，点击重试');
         await stopAll();
         return;
@@ -480,9 +489,8 @@
       if (!res?.ok) {
         if (res?.reason === 'stale') return;
         trace(`chunk not ok ${res?.reason || ''}`);
-        toast('直播中断，点击重试');
-        await stopAll();
-        return;
+        await new Promise((r) => setTimeout(r, 1000));
+        continue;
       }
       if (res.eof) {
         trace(`chunk eof ${res.error || ''}`);
@@ -491,7 +499,6 @@
         return;
       }
       if (res.empty) {
-        await new Promise((r) => setTimeout(r, 80));
         continue;
       }
       const buf = Uint8Array.from(atob(res.b64), (c) => c.charCodeAt(0));
