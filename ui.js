@@ -392,7 +392,7 @@
       /* ignore */
     }
     state.playing = false;
-    renderPlayer();
+    render();
   }
 
   async function loopChunks(id) {
@@ -415,13 +415,7 @@
       }
       if (res.eof) {
         toast(res.error || '直播中断，点击重试');
-        try {
-          if (media.ms && media.ms.readyState === 'open') media.ms.endOfStream();
-        } catch {
-          /* ignore */
-        }
-        state.playing = false;
-        renderPlayer();
+        await stopAll();
         return;
       }
       if (res.empty) {

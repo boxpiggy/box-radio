@@ -102,17 +102,18 @@ export function activate(enso) {
       if (cached && !cached.playable) return { ok: false, reason: 'unsupported' };
 
       destroyPump();
-      let url = streamUrls.get(id) || cached?.streamUrl || '';
+      let url = streamUrls.get(id) || '';
       let name = cached?.name || '';
       if (!url) {
-        const clicked = await api.click(id);
-        url = clicked.url;
-        name = clicked.name || name;
-        if (url) streamUrls.set(id, url);
-      } else {
-        api.click(id).then((clicked) => {
-          if (clicked?.url) streamUrls.set(id, clicked.url);
-        }).catch(() => {});
+        try {
+          const clicked = await api.click(id);
+          url = clicked.url;
+          name = clicked.name || name;
+          if (url) streamUrls.set(id, url);
+        } catch {
+          /* 点台接口失败时再用列表里的地址 */
+        }
+        if (!url) url = cached?.streamUrl || '';
       }
       if (!url) return { ok: false, error: '无法播放此电台' };
       if (isHlsUrl(url) || (cached && cached.hls)) {
