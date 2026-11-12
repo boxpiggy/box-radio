@@ -1,3 +1,4 @@
+import './dns-ipv4.mjs';
 import dns from 'node:dns/promises';
 import { mapStations } from './station.mjs';
 import { filterRegion, findRegion } from './regions.mjs';
@@ -36,7 +37,8 @@ function shuffle(list) {
   return a;
 }
 
-async function discoverHosts(resolve4 = dns.resolve4.bind(dns), reverse = dns.reverse.bind(dns)) {
+async function discoverHosts(resolve4, reverse) {
+  if (typeof resolve4 !== 'function') return [...STATIC_HOSTS];
   const run = async () => {
   /** @type {string[]} */
   const names = [];
@@ -163,7 +165,8 @@ export function createRadioBrowser(opts = {}) {
         }
       }
     }
-    console.warn('[box.radio] all nodes failed', lastErr?.message || lastErr);
+    const cause = lastErr?.cause?.message || lastErr?.cause || '';
+    console.warn('[box.radio] all nodes failed', lastErr?.message || lastErr, cause);
     throw new DirectoryError();
   };
 

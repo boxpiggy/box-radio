@@ -1,3 +1,4 @@
+import './dns-ipv4.mjs';
 import { ByteChunker, IcyStripper, SyncSkipper } from './icy.mjs';
 
 export const USER_AGENT =

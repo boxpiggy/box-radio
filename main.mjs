@@ -1,3 +1,4 @@
+import './dns-ipv4.mjs';
 import { fetchCover } from './cover.mjs';
 import { createLivePump } from './pump.mjs';
 import { createRadioBrowser, DirectoryError } from './radioBrowser.mjs';
